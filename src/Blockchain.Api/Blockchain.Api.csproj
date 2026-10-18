@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../Blockchain.Application/Blockchain.Application.csproj" />
+    <ProjectReference Include="../Blockchain.Infrastructure/Blockchain.Infrastructure.csproj" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+</Project>

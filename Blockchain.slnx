@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Blockchain.Api/Blockchain.Api.csproj" />
+    <Project Path="src/Blockchain.Application/Blockchain.Application.csproj" />
+    <Project Path="src/Blockchain.Domain/Blockchain.Domain.csproj" />
+    <Project Path="src/Blockchain.Infrastructure/Blockchain.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Blockchain.FunctionalTests/Blockchain.FunctionalTests.csproj" />
+    <Project Path="tests/Blockchain.IntegrationTests/Blockchain.IntegrationTests.csproj" />
+    <Project Path="tests/Blockchain.UnitTests/Blockchain.UnitTests.csproj" />
+  </Folder>
+</Solution>

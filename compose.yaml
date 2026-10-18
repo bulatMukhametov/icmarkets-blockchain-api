@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: blockchain
+      POSTGRES_USER: blockchain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blockchain -d blockchain"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: blockchain-api:local
+    build: .
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__Blockchain: Host=postgres;Database=blockchain;Username=blockchain;Password=${POSTGRES_PASSWORD:-local-development-only}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: blockchain-api:local
+    build: .
+    ports:
+      - "127.0.0.1:5080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Swagger__Enabled: "true"
+      ConnectionStrings__Blockchain: Host=postgres;Database=blockchain;Username=blockchain;Password=${POSTGRES_PASSWORD:-local-development-only}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

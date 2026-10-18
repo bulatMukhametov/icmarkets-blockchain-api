@@ -1,0 +1,110 @@
+using System.Diagnostics;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using Blockchain.Application.Abstractions;
+using Blockchain.Domain;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Blockchain.Infrastructure.BlockCypher;
+
+public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
+    IOptions<BlockCypherOptions> options, TimeProvider clock, ILogger<BlockCypherClient> logger)
+    : IBlockchainDataClient
+{
+    public async Task<ProviderSnapshot> FetchAsync(ChainId chain, CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(settings.TotalTimeoutSeconds));
+        var started = Stopwatch.GetTimestamp();
+        DateTimeOffset? requestedAt = null;
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                await gate.WaitAsync(budget.Token);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(budget.Token);
+                timeout.CancelAfter(TimeSpan.FromSeconds(settings.AttemptTimeoutSeconds));
+                requestedAt ??= clock.GetUtcNow();
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, chain.ToString());
+                    using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                    logger.LogInformation("Provider {Chain} attempt {Attempt}: HTTP {StatusCode}",
+                        chain, attempt + 1, (int)response.StatusCode);
+                    if (IsTransient(response.StatusCode) && attempt < settings.MaxRetries)
+                    {
+                        var retryAfter = response.Headers.RetryAfter;
+                        var wait = retryAfter?.Delta ?? (retryAfter?.Date - clock.GetUtcNow())
+                            ?? TimeSpan.FromMilliseconds(500 * (attempt + 1));
+                        if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
+                        // Long Retry-After values must not turn an HTTP request into a background job.
+                        if (wait > TimeSpan.FromSeconds(5))
+                            throw new ProviderException("Provider requested a delayed retry.");
+                        await Task.Delay(wait, clock, budget.Token);
+                        continue;
+                    }
+                    if (!response.IsSuccessStatusCode)
+                        throw new ProviderException($"Provider returned HTTP {(int)response.StatusCode}.");
+                    var payload = await ReadPayloadAsync(response, settings.MaxResponseBytes, timeout.Token);
+                    ValidatePayload(payload, chain);
+                    return new(payload, requestedAt.Value);
+                }
+                catch (HttpRequestException) when (attempt < settings.MaxRetries)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(500), clock, budget.Token);
+                }
+                catch (OperationCanceledException) when (!budget.IsCancellationRequested && attempt < settings.MaxRetries)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(500), clock, budget.Token);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ProviderException("Provider request timed out.", timedOut: true);
+        }
+        catch (HttpRequestException ex) { throw new ProviderException("Provider could not be reached.", inner: ex); }
+        catch (IOException ex) { throw new ProviderException("Provider response could not be read.", inner: ex); }
+        finally
+        {
+            logger.LogInformation("Provider {Chain} finished in {ElapsedMs} ms", chain,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+    }
+
+    private static bool IsTransient(HttpStatusCode status) => status is HttpStatusCode.TooManyRequests
+        or HttpStatusCode.RequestTimeout || (int)status >= 500;
+
+    private static async Task<string> ReadPayloadAsync(HttpResponseMessage response, int limit, CancellationToken token)
+    {
+        if (response.Content.Headers.ContentLength > limit) throw new ProviderException("Provider response is too large.");
+        await using var stream = await response.Content.ReadAsStreamAsync(token);
+        using var buffer = new MemoryStream();
+        var bytes = new byte[8192];
+        int read;
+        while ((read = await stream.ReadAsync(bytes, token)) != 0)
+        {
+            if (buffer.Length + read > limit) throw new ProviderException("Provider response is too large.");
+            buffer.Write(bytes, 0, read);
+        }
+        try { return new UTF8Encoding(false, true).GetString(buffer.GetBuffer(), 0, (int)buffer.Length); }
+        catch (DecoderFallbackException ex) { throw new ProviderException("Provider returned invalid UTF-8.", inner: ex); }
+    }
+
+    private static void ValidatePayload(string payload, ChainId chain)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("name", out var name) ||
+                name.ValueKind != JsonValueKind.String ||
+                !string.Equals(name.GetString(), $"{chain.Coin}.{chain.Network}", StringComparison.OrdinalIgnoreCase))
+                throw new ProviderException("Provider returned an unexpected chain document.");
+        }
+        catch (JsonException ex) { throw new ProviderException("Provider returned invalid JSON.", inner: ex); }
+    }
+}

@@ -1,0 +1,30 @@
+name: Build and test
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUN_DATABASE_TESTS: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet restore Blockchain.slnx
+      - run: dotnet build Blockchain.slnx -c Release --no-restore
+      - run: dotnet test Blockchain.slnx -c Release --no-build --no-restore --logger trx --results-directory TestResults
+      - name: Build Linux image
+        run: docker build -t blockchain-api:ci .
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
