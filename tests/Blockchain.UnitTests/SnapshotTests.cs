@@ -8,15 +8,15 @@ namespace Blockchain.UnitTests;
 
 public sealed class SnapshotTests
 {
-    private static readonly ChainId Btc = ChainId.Find("btc", "main")!;
+    private static readonly BlockchainNetwork Btc = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
 
     [Fact]
     public void Chain_catalog_distinguishes_networks_and_rejects_invalid_combinations()
     {
-        Assert.Equal(5, ChainId.Supported.Count);
-        Assert.Equal(Btc, ChainId.Find("BTC", "MAIN"));
-        Assert.NotEqual(Btc, ChainId.Find("btc", "test3"));
-        Assert.Null(ChainId.Find("eth", "test3"));
+        Assert.Equal(5, BlockchainNetwork.SupportedNetworks.Count);
+        Assert.Equal(Btc, BlockchainNetwork.FindSupportedNetwork("BTC", "MAIN"));
+        Assert.NotEqual(Btc, BlockchainNetwork.FindSupportedNetwork("btc", "test3"));
+        Assert.Null(BlockchainNetwork.FindSupportedNetwork("eth", "test3"));
     }
 
     [Fact]
@@ -81,43 +81,43 @@ public sealed class SnapshotTests
 
     private sealed class StubClient(ProviderSnapshot? value = null, Exception? error = null) : IBlockchainDataClient
     {
-        public Task<ProviderSnapshot> FetchAsync(ChainId chain, CancellationToken cancellationToken) =>
+        public Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork chain, CancellationToken cancellationToken) =>
             error is null ? Task.FromResult(value!) : Task.FromException<ProviderSnapshot>(error);
     }
 
-    private sealed class StubCapture : ISnapshotCapture
+    private sealed class StubCapture : ISnapshotCaptureService
     {
-        public Task<BlockchainSnapshot> CaptureAsync(ChainId chain, CancellationToken cancellationToken)
+        public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork chain, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return chain.Coin == "eth"
-                ? Task.FromException<BlockchainSnapshot>(new ProviderException("timeout", timedOut: true))
-                : Task.FromResult(new BlockchainSnapshot(chain, DateTimeOffset.UtcNow, "{}"));
+                ? Task.FromException<BlockchainNetworkSnapshot>(new ProviderException("timeout", timedOut: true))
+                : Task.FromResult(new BlockchainNetworkSnapshot(chain, DateTimeOffset.UtcNow, "{}"));
         }
     }
 
-    private sealed class BrokenCapture : ISnapshotCapture
+    private sealed class BrokenCapture : ISnapshotCaptureService
     {
-        public Task<BlockchainSnapshot> CaptureAsync(ChainId chain, CancellationToken cancellationToken) =>
-            Task.FromException<BlockchainSnapshot>(new InvalidOperationException("database down"));
+        public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork chain, CancellationToken cancellationToken) =>
+            Task.FromException<BlockchainNetworkSnapshot>(new InvalidOperationException("database down"));
     }
 
     private sealed class StubRepository : IBlockchainSnapshotRepository
     {
-        public List<BlockchainSnapshot> Added { get; } = [];
+        public List<BlockchainNetworkSnapshot> Added { get; } = [];
         public int ReadCount { get; private set; }
-        public Task AddAsync(BlockchainSnapshot snapshot, CancellationToken cancellationToken)
+        public Task AddAndSaveAsync(BlockchainNetworkSnapshot snapshot, CancellationToken cancellationToken)
         {
             Added.Add(snapshot);
             return Task.CompletedTask;
         }
-        public Task<BlockchainSnapshot?> GetByIdAsync(ChainId chain, long id, CancellationToken cancellationToken) =>
-            Task.FromResult<BlockchainSnapshot?>(null);
-        public Task<IReadOnlyList<BlockchainSnapshot>> GetHistoryAsync(ChainId chain, SnapshotCursor? before,
+        public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork chain, long id, CancellationToken cancellationToken) =>
+            Task.FromResult<BlockchainNetworkSnapshot?>(null);
+        public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork chain, SnapshotCursor? before,
             int take, CancellationToken cancellationToken)
         {
             ReadCount++;
-            return Task.FromResult<IReadOnlyList<BlockchainSnapshot>>(Added.Take(take).ToArray());
+            return Task.FromResult<IReadOnlyList<BlockchainNetworkSnapshot>>(Added.Take(take).ToArray());
         }
     }
 }

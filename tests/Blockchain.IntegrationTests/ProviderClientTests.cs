@@ -9,7 +9,7 @@ namespace Blockchain.IntegrationTests;
 
 public sealed class ProviderClientTests
 {
-    private static readonly ChainId Btc = ChainId.Find("btc", "main")!;
+    private static readonly BlockchainNetwork Btc = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
 
     [Theory]
     [InlineData("not-json")]
@@ -18,7 +18,7 @@ public sealed class ProviderClientTests
     public async Task Rejects_invalid_or_wrong_chain_payload(string payload)
     {
         using var harness = new ClientHarness(_ => new(HttpStatusCode.OK) { Content = new StringContent(payload) });
-        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchAsync(Btc, default));
+        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchSnapshotAsync(Btc, default));
     }
 
     [Fact]
@@ -29,7 +29,7 @@ public sealed class ProviderClientTests
         using var harness = new ClientHarness(_ => ++count == 1
             ? new(HttpStatusCode.ServiceUnavailable)
             : new(HttpStatusCode.OK) { Content = new StringContent(json) }, retries: 1);
-        var result = await harness.Client.FetchAsync(Btc, default);
+        var result = await harness.Client.FetchSnapshotAsync(Btc, default);
         Assert.Equal(2, count);
         Assert.Equal(json, result.Payload);
         Assert.True(result.RequestedAt <= DateTimeOffset.UtcNow);
@@ -40,7 +40,7 @@ public sealed class ProviderClientTests
     {
         var count = 0;
         using var harness = new ClientHarness(_ => { count++; return new(HttpStatusCode.BadRequest); }, retries: 2);
-        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchAsync(Btc, default));
+        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchSnapshotAsync(Btc, default));
         Assert.Equal(1, count);
     }
 
@@ -48,16 +48,16 @@ public sealed class ProviderClientTests
     public async Task Rejects_oversized_response()
     {
         using var harness = new ClientHarness(_ => new(HttpStatusCode.OK) { Content = new StringContent(new string('x', 2048)) });
-        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchAsync(Btc, default));
+        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchSnapshotAsync(Btc, default));
     }
 
     [Fact]
     public async Task Hourly_budget_is_shared_by_all_attempts()
     {
         var settings = Options.Create(new BlockCypherOptions { RequestsPerHour = 1, RequestsPerSecond = 3 });
-        using var gate = new ProviderRequestGate(settings, TimeProvider.System);
-        await gate.WaitAsync(default);
-        await Assert.ThrowsAsync<ProviderException>(() => gate.WaitAsync(default));
+        using var gate = new ProviderRequestLimiter(settings, TimeProvider.System);
+        await gate.WaitForPermitAsync(default);
+        await Assert.ThrowsAsync<ProviderException>(() => gate.WaitForPermitAsync(default));
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class ProviderClientTests
             response.Headers.RetryAfter = new(TimeSpan.FromHours(1));
             return response;
         }, retries: 1);
-        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchAsync(Btc, default));
+        await Assert.ThrowsAsync<ProviderException>(() => harness.Client.FetchSnapshotAsync(Btc, default));
         Assert.Equal(1, count);
     }
 
@@ -80,10 +80,10 @@ public sealed class ProviderClientTests
     {
         var settings = Options.Create(new BlockCypherOptions { AttemptTimeoutSeconds = 1, MaxRetries = 0 });
         using var http = new HttpClient(new SlowHandler()) { BaseAddress = new("https://example.invalid/") };
-        using var gate = new ProviderRequestGate(settings, TimeProvider.System);
+        using var gate = new ProviderRequestLimiter(settings, TimeProvider.System);
         var circuit = new ProviderCircuitBreaker(settings, TimeProvider.System, NullLogger<ProviderCircuitBreaker>.Instance);
         var client = new BlockCypherClient(http, gate, circuit, settings, TimeProvider.System, NullLogger<BlockCypherClient>.Instance);
-        var error = await Assert.ThrowsAsync<ProviderException>(() => client.FetchAsync(Btc, default));
+        var error = await Assert.ThrowsAsync<ProviderException>(() => client.FetchSnapshotAsync(Btc, default));
         Assert.True(error.TimedOut);
     }
 
@@ -93,7 +93,7 @@ public sealed class ProviderClientTests
         using var harness = new ClientHarness(_ => new(HttpStatusCode.OK));
         using var source = new CancellationTokenSource();
         source.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => harness.Client.FetchAsync(Btc, source.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => harness.Client.FetchSnapshotAsync(Btc, source.Token));
     }
 
     private sealed class ResponseHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
@@ -114,7 +114,7 @@ public sealed class ProviderClientTests
     private sealed class ClientHarness : IDisposable
     {
         private readonly HttpClient http;
-        private readonly ProviderRequestGate gate;
+        private readonly ProviderRequestLimiter gate;
         public BlockCypherClient Client { get; }
         public ClientHarness(Func<HttpRequestMessage, HttpResponseMessage> respond, int retries = 0)
         {

@@ -9,11 +9,11 @@ using Microsoft.Extensions.Options;
 
 namespace Blockchain.Infrastructure.BlockCypher;
 
-public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate, ProviderCircuitBreaker circuit,
+public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter gate, ProviderCircuitBreaker circuit,
     IOptions<BlockCypherOptions> options, TimeProvider clock, ILogger<BlockCypherClient> logger)
     : IBlockchainDataClient
 {
-    public async Task<ProviderSnapshot> FetchAsync(ChainId chain, CancellationToken cancellationToken)
+    public async Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork chain, CancellationToken cancellationToken)
     {
         var settings = options.Value;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(settings.TotalTimeoutSeconds), clock);
@@ -25,7 +25,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
             for (var attempt = 0; ; attempt++)
             {
                 circuit.ThrowIfUnavailable(budget.Token);
-                await gate.WaitAsync(budget.Token);
+                await gate.WaitForPermitAsync(budget.Token);
                 try
                 {
                     var response = await circuit.ExecuteAsync(token =>
@@ -70,7 +70,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
         }
     }
 
-    private async ValueTask<ProviderAttemptResult> SendAttemptAsync(ChainId chain, int attempt,
+    private async ValueTask<ProviderAttemptResult> SendAttemptAsync(BlockchainNetwork chain, int attempt,
         BlockCypherOptions settings, CancellationToken token)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(settings.AttemptTimeoutSeconds), clock);
@@ -82,6 +82,11 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
             logger.LogInformation("Provider {Chain} attempt {Attempt}: HTTP {StatusCode}", chain, attempt + 1, (int)response.StatusCode);
             var retryAfter = response.Headers.RetryAfter;
             var delay = retryAfter?.Delta ?? (retryAfter?.Date - clock.GetUtcNow());
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                delay ??= TimeSpan.FromSeconds(1);
+                gate.ApplyCooldown(delay.Value);
+            }
             if (!response.IsSuccessStatusCode) return new(response.StatusCode, null, delay);
             var payload = await ReadPayloadAsync(response, settings.MaxResponseBytes, timeout.Token);
             ValidatePayload(payload, chain);
@@ -112,7 +117,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
         catch (DecoderFallbackException ex) { throw new ProviderException("Provider returned invalid UTF-8.", inner: ex); }
     }
 
-    private static void ValidatePayload(string payload, ChainId chain)
+    private static void ValidatePayload(string payload, BlockchainNetwork chain)
     {
         try
         {

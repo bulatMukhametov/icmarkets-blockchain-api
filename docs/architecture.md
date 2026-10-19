@@ -6,7 +6,11 @@ Domain has no framework dependencies. Application references Domain only and own
 Infrastructure implements persistence and the provider client. API owns HTTP contracts and the composition root.
 There is one deployment unit and one database. Application folders group code by use case.
 
-The domain is deliberately small: a supported currency/network identity and an immutable observation.
+The domain is deliberately small: BlockchainNetwork identifies a supported currency/network pair;
+BlockchainNetworkSnapshot is a saved provider response about that network at request-start time.
+Snapshot means an observation, not a complete blockchain download. CreatedAt and Payload retain their
+existing API/storage names and are documented on the domain type. Public application contracts and
+use-case commands, queries and results have their own named files.
 No artificial base entities, aggregates or per-currency service inheritance are needed.
 
 ## 2. CQRS and Repository
@@ -61,9 +65,13 @@ An open circuit is never retried locally. After the break, Polly admits one prob
 Transitions are logged. Polly types remain in Infrastructure; Application exposes a provider-circuit
 exception, mapped to HTTP 503 with Retry-After or a per-chain provider_circuit_open batch outcome.
 
-This is an availability circuit for the provider as a whole. Quota errors remain separate: the existing
-429 retry delay is per operation, not a shared provider cooldown. Circuit state is process-local, just
-like the outbound quota; multiple replicas need an explicit ingestion/coordination design.
+This is an availability circuit for the provider as a whole. Quota errors remain separate:
+ProviderRequestLimiter shares the HTTP 429 Retry-After cooldown across all clients, even if no retries
+remain. It supports delta and date headers, using one second if absent. A new cooldown can extend but
+not shorten the existing one. New calls and calls still waiting for spacing fail without consuming
+quota while the pause is active. Already admitted calls may finish. The original call retains bounded
+short retries; long pauses fail promptly. Circuit state, cooldown and quota are process-local; multiple
+replicas need an explicit ingestion/coordination design.
 
 Batch capture starts five independent operations, each owning a DI scope and DbContext. Provider failures
 are reported per chain, preserving successful observations. Request cancellation propagates. A persistence
@@ -78,7 +86,9 @@ cursor semantics and page bounds, and the chain catalog prevents unsupported sou
 Provider JSON is validated before storage. Mapping from entity to HTTP DTO is explicit, without a mapping
 library for this single projection. System.Text.Json serializes the response envelope.
 
-ProblemDetails unifies API errors. Logs contain chain, attempt, status, elapsed time and request trace.
+ProblemDetails unifies API errors. If content negotiation cannot find a problem writer (for example,
+Accept: text/html), application exceptions still return application/problem+json with their original
+validation details and trace ID. Logs contain network, attempt, status, elapsed time and request trace.
 Liveness is independent of dependencies; readiness queries the actual snapshots table and never the provider.
 CORS uses explicit configured origins. A concurrency limiter bounds incoming capture requests.
 

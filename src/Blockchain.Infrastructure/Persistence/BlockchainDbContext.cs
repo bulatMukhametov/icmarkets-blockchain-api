@@ -5,11 +5,11 @@ namespace Blockchain.Infrastructure.Persistence;
 
 public sealed class BlockchainDbContext(DbContextOptions<BlockchainDbContext> options) : DbContext(options)
 {
-    public DbSet<BlockchainSnapshot> Snapshots => Set<BlockchainSnapshot>();
+    public DbSet<BlockchainNetworkSnapshot> Snapshots => Set<BlockchainNetworkSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        var entity = modelBuilder.Entity<BlockchainSnapshot>();
+        var entity = modelBuilder.Entity<BlockchainNetworkSnapshot>();
         entity.ToTable("Snapshots", table =>
         {
             table.HasCheckConstraint("CK_Snapshots_Chain", "(\"Coin\" IN ('btc','eth','dash','ltc') AND \"Network\" = 'main') OR (\"Coin\" = 'btc' AND \"Network\" = 'test3')");

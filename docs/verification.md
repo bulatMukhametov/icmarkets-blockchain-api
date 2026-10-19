@@ -6,16 +6,16 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
 
 - .NET SDK 10.0.402; dependencies restored with NuGet vulnerability warnings treated as errors.
 - Release solution build: zero warnings and errors.
-- Latest Release tests: 60 passed, zero failed, zero skipped.
+- Latest Release tests: 67 passed, zero failed, zero skipped.
   - Unit: 7.
-  - Integration: 41, including background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
+  - Integration: 45, including shared provider cooldown, background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
     consistency, complete payload preservation, currency/network isolation and keyset pagination.
-  - Functional: 12, including automatic capture without POST, HTTP-to-PostgreSQL capture/history,
+  - Functional: 15, including validation errors with different Accept headers, automatic capture without POST, HTTP-to-PostgreSQL capture/history,
     concurrent partial collection and the circuit-open HTTP/batch contracts.
 - The original 28-test suite used a temporary local PostgreSQL 17.11 instance through TEST_POSTGRES_CONNECTION.
   Each test fixture created and removed its own schema.
 - The latest complete Release suite ran with RUN_DATABASE_TESTS=true and TEST_POSTGRES_CONNECTION
-  unset: 60 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
+  unset: 67 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
   containers and cleaned them up successfully. The test host ran on Windows.
 - Release publish succeeded with UseAppHost=false, as used by the Docker build.
 - Published assembly applied migrations to a fresh database through --migrate.
@@ -77,6 +77,24 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
   IPv4 loopback requests with a longer timeout verified all rows. The API was then verified with
   collection disabled again, leaving PostgreSQL and the API running. Evidence is recorded in
   TestResults/background-worker/docker-smoke.json.
+
+## Final review and naming (2026-10-19)
+
+- Domain names now state the concepts explicitly: BlockchainNetwork and BlockchainNetworkSnapshot.
+  Public application contracts and use-case messages/results have individual named files. Provider
+  fetching, immediate repository persistence, request limiting and controller actions have explicit names.
+- No pending relational model changes were detected after the CLR type rename; existing migrations,
+  tables, columns and stored payloads are preserved. HTTP capture Location and history contracts passed.
+- Four cooldown cases verify queued callers, shared limits across clients, delta/date Retry-After,
+  final-attempt throttling, expiry, cancellation and quota preservation.
+- Three HTTP cases verify validation details and trace ID for JSON, HTML and XML Accept headers.
+- Release build completed with zero warnings/errors; all 67 tests passed with real PostgreSQL tests
+  enabled. TRX reports are under TestResults/final-review/ (ignored by Git).
+- Rebuilt and started the Linux image against the existing database. Readiness returned 200,
+  pre-existing snapshot 9 remained readable, an HTML Accept request retained cursor validation details
+  and trace ID with status 400, and a live BTC capture returned 201 (snapshot 14) with a working Location.
+  Evidence is under TestResults/final-review/docker-smoke.json. Automatic collection remains disabled.
+- GitHub Actions settings and workflow files were left unchanged at the user's request.
 
 ## Not verified
 

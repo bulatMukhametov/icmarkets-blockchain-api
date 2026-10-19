@@ -5,12 +5,12 @@ namespace Blockchain.Application.Abstractions;
 
 public sealed record SnapshotCursor(string Coin, string Network, DateTimeOffset CreatedAt, long Id)
 {
-    public static string Encode(BlockchainSnapshot snapshot) => Convert.ToBase64String(
+    public static string Encode(BlockchainNetworkSnapshot snapshot) => Convert.ToBase64String(
         JsonSerializer.SerializeToUtf8Bytes(new SnapshotCursor(
             snapshot.Coin, snapshot.Network, snapshot.CreatedAt, snapshot.Id)))
         .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    public static SnapshotCursor? Decode(string? value, ChainId chain)
+    public static SnapshotCursor? Decode(string? value, BlockchainNetwork chain)
     {
         if (value is null) return null;
         try

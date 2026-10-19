@@ -20,7 +20,7 @@ public static class DependencyInjection
             options.UseNpgsql(connection);
         });
         services.AddScoped<IBlockchainSnapshotRepository, BlockchainSnapshotRepository>();
-        services.AddSingleton<ISnapshotCapture, ScopedSnapshotCapture>();
+        services.AddSingleton<ISnapshotCaptureService, ScopedSnapshotCaptureService>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddOptions<SnapshotCollectionOptions>().Bind(configuration.GetSection(SnapshotCollectionOptions.Section))
             .ValidateDataAnnotations().ValidateOnStart();
@@ -31,7 +31,7 @@ public static class DependencyInjection
                 (uri.Scheme == Uri.UriSchemeHttps || uri.IsLoopback) && uri.AbsolutePath.EndsWith('/'),
                 "BaseUrl must be HTTPS (or loopback for tests), with a trailing slash.")
             .ValidateOnStart();
-        services.AddSingleton<ProviderRequestGate>();
+        services.AddSingleton<ProviderRequestLimiter>();
         services.AddSingleton<ProviderCircuitBreaker>();
         services.AddHttpClient<IBlockchainDataClient, BlockCypherClient>((provider, client) =>
         {

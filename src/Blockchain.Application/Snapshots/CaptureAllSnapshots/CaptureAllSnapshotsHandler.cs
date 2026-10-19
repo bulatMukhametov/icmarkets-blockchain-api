@@ -3,20 +3,14 @@ using Blockchain.Domain;
 
 namespace Blockchain.Application.Snapshots.CaptureAllSnapshots;
 
-public sealed record CaptureAllSnapshotsCommand;
-public sealed record CaptureResult(string Coin, string Network, long? SnapshotId, string? Error)
+public sealed class CaptureAllSnapshotsHandler(ISnapshotCaptureService capture)
+    : ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<NetworkCaptureResult>>
 {
-    public bool Succeeded => SnapshotId.HasValue;
-}
-
-public sealed class CaptureAllSnapshotsHandler(ISnapshotCapture capture)
-    : ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<CaptureResult>>
-{
-    public async Task<IReadOnlyList<CaptureResult>> HandleAsync(
+    public async Task<IReadOnlyList<NetworkCaptureResult>> HandleAsync(
         CaptureAllSnapshotsCommand command, CancellationToken cancellationToken) =>
-        await Task.WhenAll(ChainId.Supported.Select(chain => CaptureOneAsync(chain, cancellationToken)));
+        await Task.WhenAll(BlockchainNetwork.SupportedNetworks.Select(chain => CaptureNetworkAsync(chain, cancellationToken)));
 
-    private async Task<CaptureResult> CaptureOneAsync(ChainId chain, CancellationToken cancellationToken)
+    private async Task<NetworkCaptureResult> CaptureNetworkAsync(BlockchainNetwork chain, CancellationToken cancellationToken)
     {
         try
         {

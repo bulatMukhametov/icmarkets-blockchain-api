@@ -118,7 +118,7 @@ public sealed class SnapshotCollectionWorkerTests
         public Harness(bool enabled = true, int intervalSeconds = 600)
         {
             var services = new ServiceCollection();
-            services.AddScoped<ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<CaptureResult>>>(
+            services.AddScoped<ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<NetworkCaptureResult>>>(
                 _ => new Handler(this, Interlocked.Increment(ref Scopes)));
             provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
             Worker = new(provider.GetRequiredService<IServiceScopeFactory>(), Options.Create(new SnapshotCollectionOptions
@@ -145,9 +145,9 @@ public sealed class SnapshotCollectionWorkerTests
         }
 
         private sealed class Handler(Harness harness, int scopeId)
-            : ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<CaptureResult>>, IAsyncDisposable
+            : ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<NetworkCaptureResult>>, IAsyncDisposable
         {
-            public async Task<IReadOnlyList<CaptureResult>> HandleAsync(CaptureAllSnapshotsCommand command, CancellationToken token)
+            public async Task<IReadOnlyList<NetworkCaptureResult>> HandleAsync(CaptureAllSnapshotsCommand command, CancellationToken token)
             {
                 var call = Interlocked.Increment(ref harness.Calls);
                 harness.Started.Writer.TryWrite(call);

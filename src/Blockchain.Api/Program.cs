@@ -19,10 +19,10 @@ var builder = WebApplication.CreateBuilder(args.Where(x => x != "--migrate").ToA
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole();
 builder.Services.AddInfrastructure(builder.Configuration);
-builder.Services.AddScoped<ICommandHandler<CaptureSnapshotCommand, BlockchainSnapshot>, CaptureSnapshotHandler>();
-builder.Services.AddScoped<ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<CaptureResult>>, CaptureAllSnapshotsHandler>();
-builder.Services.AddScoped<IQueryHandler<GetSnapshotQuery, BlockchainSnapshot?>, GetSnapshotHandler>();
-builder.Services.AddScoped<IQueryHandler<GetSnapshotHistoryQuery, SnapshotPage>, GetSnapshotHistoryHandler>();
+builder.Services.AddScoped<ICommandHandler<CaptureSnapshotCommand, BlockchainNetworkSnapshot>, CaptureSnapshotHandler>();
+builder.Services.AddScoped<ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<NetworkCaptureResult>>, CaptureAllSnapshotsHandler>();
+builder.Services.AddScoped<IQueryHandler<GetSnapshotQuery, BlockchainNetworkSnapshot?>, GetSnapshotHandler>();
+builder.Services.AddScoped<IQueryHandler<GetSnapshotHistoryQuery, SnapshotHistoryPage>, GetSnapshotHistoryHandler>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

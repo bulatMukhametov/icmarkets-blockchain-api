@@ -3,6 +3,16 @@
 ICMarkets .NET exercise: capture BlockCypher chain summaries, preserve their complete JSON responses,
 and query the stored observation history. .NET 10, ASP.NET Core, EF Core and PostgreSQL.
 
+## What the application stores
+
+A **blockchain network** is a currency/network pair: `btc/main` is Bitcoin mainnet, while `btc/test3`
+is a separate Bitcoin test network. A **snapshot** is one saved response from the provider about that
+network, together with the time our request started. It is a network summary, not a copy of all blocks.
+Two requests produce two observations even when the returned data is identical.
+
+The domain expresses these concepts as `BlockchainNetwork` and `BlockchainNetworkSnapshot`.
+`CreatedAt` records request-start time in UTC; `Payload` preserves the complete original JSON response.
+
 ## Quick start: Linux containers
 
 Requires Docker Engine/Desktop with Linux containers and Docker Compose v2 or later.
@@ -127,8 +137,13 @@ reopens it, because cancellation does not establish that the provider recovered.
 New calls fail promptly while the circuit is open; retries stop and requests waiting at the outbound
 gate recheck circuit admission before sending. Calls already sent may finish. The circuit is shared
 by all five networks in one process and resets on restart. GET history and database readiness do not
-depend on the circuit. HTTP 429 still uses the existing bounded retry handling; a shared Retry-After
-cooldown across concurrent calls is not implemented.
+depend on the circuit. HTTP 429 applies a shared Retry-After cooldown to the provider limiter, including
+on the final attempt. Both delta-seconds and HTTP-date headers are supported; a missing header uses
+one second. New or still-waiting calls fail promptly during this pause without consuming quota, while
+already admitted requests may finish. A later response can extend but never shorten the pause.
+The original call may retry after a short delay (up to five seconds); a longer delay fails promptly
+while the shared pause remains active. Cooldown failures keep the existing 502 / provider_unavailable
+contract and do not trip the availability circuit.
 
 ## Background collection
 
@@ -186,9 +201,29 @@ tests create unique schemas and drop only those schemas on completion. Still set
 Do not point this at a production database.
 
 The three projects cover domain/application behavior, real persistence/provider integration, and API
-functional behavior respectively. CI enables PostgreSQL tests and builds the Linux image.
+functional behavior respectively. The included CI workflow is configured to run PostgreSQL tests and
+build the Linux image; verification reported here is local, not a confirmed GitHub Actions result.
 
 ## Architecture and maintenance
+
+Start reading the code in this order:
+
+| Location | Responsibility |
+| --- | --- |
+| `src/Blockchain.Domain` | Supported networks and saved network snapshots |
+| `src/Blockchain.Application/Snapshots` | Capture one/all networks and read stored history; command/query/result files sit beside their handler |
+| `src/Blockchain.Application/Abstractions` | Named contracts for provider access, persistence and scoped capture |
+| `src/Blockchain.Infrastructure/BlockCypher` | HTTP integration, request limiting, shared cooldown and circuit breaker |
+| `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, migrations and repository |
+| `src/Blockchain.Infrastructure/Collection` | Optional periodic capture using the existing application command |
+| `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
+
+For a single capture, follow `SnapshotsController.CaptureSnapshot` -> `CaptureSnapshotHandler` ->
+`IBlockchainDataClient.FetchSnapshotAsync` -> `IBlockchainSnapshotRepository.AddAndSaveAsync`.
+For history, follow `GetSnapshotHistory` -> `GetSnapshotHistoryHandler` -> the repository; this path
+never calls the provider. `HandleAsync` is the common command/query handler convention.
+`ScopedSnapshotCaptureService` creates a separate DI scope for each concurrent capture so it owns
+its own DbContext. `ProviderRequestLimiter.WaitForPermitAsync` enforces outbound request limits.
 
 - Clean Architecture: Domain ← Application ← Infrastructure; API is the composition root.
 - CQRS: separate command/query handlers, one database, no mediator dependency.

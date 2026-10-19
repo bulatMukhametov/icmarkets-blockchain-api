@@ -8,13 +8,33 @@ namespace Blockchain.FunctionalTests;
 
 public sealed class ApiTests
 {
+    [Theory]
+    [InlineData("text/html")]
+    [InlineData("application/xml")]
+    [InlineData("application/json")]
+    public async Task Validation_errors_keep_details_and_trace_id_for_any_accept_header(string accept)
+    {
+        await using var factory = new ApiFactory();
+        using var http = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/chains/btc/main/snapshots?cursor=invalid!");
+        request.Headers.Accept.ParseAdd(accept);
+        using var response = await http.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(400, body.RootElement.GetProperty("status").GetInt32());
+        Assert.NotEmpty(body.RootElement.GetProperty("errors").GetProperty("cursor").EnumerateArray());
+        Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("traceId").GetString()));
+        Assert.Equal(0, factory.ProviderRequests);
+    }
+
     [Fact]
     public async Task Enabled_worker_populates_all_chain_histories_without_a_capture_request()
     {
         await using var factory = new ApiFactory(collectionEnabled: true);
         using var http = factory.CreateClient();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        foreach (var chain in Blockchain.Domain.ChainId.Supported)
+        foreach (var chain in Blockchain.Domain.BlockchainNetwork.SupportedNetworks)
         {
             SnapshotHistoryResponse? history;
             do
@@ -49,7 +69,7 @@ public sealed class ApiTests
         Assert.Single(history!.Items);
         using var collection = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, collection.StatusCode);
-        var results = (await collection.Content.ReadFromJsonAsync<CaptureResult[]>())!;
+        var results = (await collection.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
         Assert.Equal(5, results.Length);
         Assert.All(results, result => { Assert.False(result.Succeeded); Assert.Equal("provider_circuit_open", result.Error); });
         Assert.Equal(5, factory.ProviderRequests);
@@ -112,7 +132,7 @@ public sealed class ApiTests
         using var http = factory.CreateClient();
         using var response = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var results = (await response.Content.ReadFromJsonAsync<CaptureResult[]>())!;
+        var results = (await response.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
         Assert.Equal(5, results.Length);
         Assert.Equal(4, results.Count(x => x.Succeeded));
         Assert.Equal("provider_unavailable", Assert.Single(results, x => !x.Succeeded).Error);

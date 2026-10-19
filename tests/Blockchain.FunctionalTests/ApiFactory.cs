@@ -62,22 +62,22 @@ public sealed class ApiFactory(string? databaseConnection = null, bool collectio
 public sealed class MemorySnapshotRepository : IBlockchainSnapshotRepository
 {
     private long nextId;
-    private readonly ConcurrentDictionary<long, BlockchainSnapshot> snapshots = new();
+    private readonly ConcurrentDictionary<long, BlockchainNetworkSnapshot> snapshots = new();
 
-    public Task AddAsync(BlockchainSnapshot snapshot, CancellationToken token)
+    public Task AddAndSaveAsync(BlockchainNetworkSnapshot snapshot, CancellationToken token)
     {
         var id = Interlocked.Increment(ref nextId);
-        typeof(BlockchainSnapshot).GetProperty(nameof(BlockchainSnapshot.Id))!.SetValue(snapshot, id);
+        typeof(BlockchainNetworkSnapshot).GetProperty(nameof(BlockchainNetworkSnapshot.Id))!.SetValue(snapshot, id);
         snapshots[id] = snapshot;
         return Task.CompletedTask;
     }
 
-    public Task<BlockchainSnapshot?> GetByIdAsync(ChainId chain, long id, CancellationToken token) =>
+    public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork chain, long id, CancellationToken token) =>
         Task.FromResult(snapshots.TryGetValue(id, out var value) && value.Coin == chain.Coin && value.Network == chain.Network
             ? value : null);
 
-    public Task<IReadOnlyList<BlockchainSnapshot>> GetHistoryAsync(ChainId chain, SnapshotCursor? before, int take,
-        CancellationToken token) => Task.FromResult<IReadOnlyList<BlockchainSnapshot>>(snapshots.Values
+    public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork chain, SnapshotCursor? before, int take,
+        CancellationToken token) => Task.FromResult<IReadOnlyList<BlockchainNetworkSnapshot>>(snapshots.Values
         .Where(x => x.Coin == chain.Coin && x.Network == chain.Network)
         .Where(x => before is null || x.CreatedAt < before.CreatedAt || (x.CreatedAt == before.CreatedAt && x.Id < before.Id))
         .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).Take(take).ToArray());

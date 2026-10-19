@@ -3,10 +3,9 @@ using Blockchain.Domain;
 
 namespace Blockchain.Application.Snapshots.GetSnapshot;
 
-public sealed record GetSnapshotQuery(ChainId Chain, long Id);
 public sealed class GetSnapshotHandler(IBlockchainSnapshotRepository repository)
-    : IQueryHandler<GetSnapshotQuery, BlockchainSnapshot?>
+    : IQueryHandler<GetSnapshotQuery, BlockchainNetworkSnapshot?>
 {
-    public Task<BlockchainSnapshot?> HandleAsync(GetSnapshotQuery query, CancellationToken cancellationToken) =>
-        repository.GetByIdAsync(query.Chain, query.Id, cancellationToken);
+    public Task<BlockchainNetworkSnapshot?> HandleAsync(GetSnapshotQuery query, CancellationToken cancellationToken) =>
+        repository.GetByIdAsync(query.Network, query.Id, cancellationToken);
 }

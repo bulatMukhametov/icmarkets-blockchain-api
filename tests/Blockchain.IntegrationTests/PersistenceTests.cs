@@ -18,17 +18,17 @@ public sealed class PersistenceTests(PostgresFixture postgres) : IClassFixture<P
         Assert.False(db.Database.HasPendingModelChanges());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         var repository = new BlockchainSnapshotRepository(db);
-        var main = ChainId.Find("btc", "main")!;
-        var testnet = ChainId.Find("btc", "test3")!;
+        var main = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
+        var testnet = BlockchainNetwork.FindSupportedNetwork("btc", "test3")!;
         var time = DateTimeOffset.UtcNow.AddTicks(17);
         const string raw = "{ \"name\": \"BTC.main\", \"large\": 12345678901234567890, \"extra\": [true,null] }";
-        var old = new BlockchainSnapshot(main, time.AddMinutes(-1), raw);
-        var first = new BlockchainSnapshot(main, time, raw);
-        var second = new BlockchainSnapshot(main, time, raw);
-        await repository.AddAsync(old, default);
-        await repository.AddAsync(first, default);
-        await repository.AddAsync(second, default);
-        await repository.AddAsync(new(testnet, time.AddHours(1), "{}"), default);
+        var old = new BlockchainNetworkSnapshot(main, time.AddMinutes(-1), raw);
+        var first = new BlockchainNetworkSnapshot(main, time, raw);
+        var second = new BlockchainNetworkSnapshot(main, time, raw);
+        await repository.AddAndSaveAsync(old, default);
+        await repository.AddAndSaveAsync(first, default);
+        await repository.AddAndSaveAsync(second, default);
+        await repository.AddAndSaveAsync(new(testnet, time.AddHours(1), "{}"), default);
         db.ChangeTracker.Clear();
 
         var handler = new GetSnapshotHistoryHandler(repository);

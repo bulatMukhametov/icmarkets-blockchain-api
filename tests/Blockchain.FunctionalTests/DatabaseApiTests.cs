@@ -32,7 +32,7 @@ public sealed class DatabaseApiTests(PostgresFixture postgres) : IClassFixture<P
         factory.FailingCoin = "eth";
         using var collection = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, collection.StatusCode);
-        var results = (await collection.Content.ReadFromJsonAsync<CaptureResult[]>())!;
+        var results = (await collection.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
         Assert.Equal(4, results.Count(x => x.Succeeded));
         foreach (var item in results.Where(x => x.Succeeded))
         {

@@ -48,7 +48,7 @@ public sealed class SnapshotCollectionWorker(
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var handler = scope.ServiceProvider.GetRequiredService<
-                ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<CaptureResult>>>();
+                ICommandHandler<CaptureAllSnapshotsCommand, IReadOnlyList<NetworkCaptureResult>>>();
             var results = await handler.HandleAsync(new(), cancellation.Token);
             foreach (var result in results.Where(x => !x.Succeeded))
                 logger.LogWarning("Background capture failed for {Coin}/{Network}: {Error}",

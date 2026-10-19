@@ -1,5 +1,6 @@
-using Blockchain.Application.Abstractions;
+using System.Diagnostics;
 using System.Globalization;
+using Blockchain.Application.Abstractions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -41,9 +42,15 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems, ILogger
             logger.LogError(exception, "Request failed for {TraceId}", context.TraceIdentifier);
         }
         context.Response.StatusCode = detail.Status!.Value;
-        return await problems.TryWriteAsync(new ProblemDetailsContext
+        detail.Extensions["traceId"] = Activity.Current?.Id ?? context.TraceIdentifier;
+        if (await problems.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = context, ProblemDetails = detail, Exception = exception
-        });
+        })) return true;
+
+        // Keep the API error contract even when no registered writer accepts the request's Accept header.
+        await context.Response.WriteAsJsonAsync((object)detail, options: null,
+            contentType: "application/problem+json", cancellationToken: token);
+        return true;
     }
 }

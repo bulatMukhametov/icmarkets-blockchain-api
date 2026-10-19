@@ -48,7 +48,7 @@ public sealed class CircuitBreakerTests
         var otherClient = h.CreateClient();
         for (var i = 0; i < 10; i++)
             await Assert.ThrowsAsync<ProviderCircuitOpenException>(() =>
-                otherClient.FetchAsync(ChainId.Find("eth", "main")!, default));
+                otherClient.FetchSnapshotAsync(BlockchainNetwork.FindSupportedNetwork("eth", "main")!, default));
         Assert.Equal(2, h.Calls);
         h.Clock.Advance(TimeSpan.FromSeconds(30));
         h.Respond = (_, _) => Task.FromResult(Response(200));
@@ -69,7 +69,7 @@ public sealed class CircuitBreakerTests
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(3, h.Calls);
         await Task.WhenAll(Enumerable.Range(0, 10).Select(_ =>
-            Assert.ThrowsAsync<ProviderCircuitOpenException>(() => h.CreateClient().FetchAsync(Harness.Btc, default))));
+            Assert.ThrowsAsync<ProviderCircuitOpenException>(() => h.CreateClient().FetchSnapshotAsync(Harness.Btc, default))));
         Assert.Equal(3, h.Calls);
         release.SetResult(Response(200));
         await probe.WaitAsync(TimeSpan.FromSeconds(5));
@@ -200,7 +200,7 @@ public sealed class CircuitBreakerTests
         {
             h.Clock.Advance(TimeSpan.FromSeconds(1));
             using var cancel = new CancellationTokenSource();
-            var request = h.Client.FetchAsync(Harness.Btc, cancel.Token);
+            var request = h.Client.FetchSnapshotAsync(Harness.Btc, cancel.Token);
             cancel.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
         }
@@ -221,7 +221,7 @@ public sealed class CircuitBreakerTests
             return Response(200);
         };
         using var cancel = new CancellationTokenSource();
-        var probe = h.Client.FetchAsync(Harness.Btc, cancel.Token);
+        var probe = h.Client.FetchSnapshotAsync(Harness.Btc, cancel.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => probe);
@@ -275,14 +275,14 @@ public sealed class CircuitBreakerTests
 
     private sealed class Harness : IDisposable
     {
-        public static readonly ChainId Btc = ChainId.Find("btc", "main")!;
+        public static readonly BlockchainNetwork Btc = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
         public FakeTimeProvider Clock { get; } = new();
         public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> Respond { get; set; } =
             (_, _) => Task.FromResult(Response(503));
         public int Calls;
         public BlockCypherClient Client { get; }
         private readonly IOptions<BlockCypherOptions> options;
-        private readonly ProviderRequestGate gate;
+        private readonly ProviderRequestLimiter gate;
         private readonly ProviderCircuitBreaker circuit;
         private readonly HttpClient http;
 
@@ -296,7 +296,7 @@ public sealed class CircuitBreakerTests
         }
 
         public BlockCypherClient CreateClient() => new(http, gate, circuit, options, Clock, NullLogger<BlockCypherClient>.Instance);
-        public Task<ProviderSnapshot> Fetch() => Client.FetchAsync(Btc, default);
+        public Task<ProviderSnapshot> Fetch() => Client.FetchSnapshotAsync(Btc, default);
         public async Task Open()
         {
             for (var i = 0; i < 2; i++)
