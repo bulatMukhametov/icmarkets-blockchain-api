@@ -11,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Blockchain.FunctionalTests;
 
-public sealed class ApiFactory(string? databaseConnection = null) : WebApplicationFactory<Program>
+public sealed class ApiFactory(string? databaseConnection = null, bool collectionEnabled = false) : WebApplicationFactory<Program>
 {
     public int ProviderRequests;
     public string? FailingCoin { get; set; }
@@ -25,7 +25,9 @@ public sealed class ApiFactory(string? databaseConnection = null) : WebApplicati
             {
                 ["ConnectionStrings:Blockchain"] = databaseConnection ?? "Host=localhost;Port=1;Database=absent;Username=test;Password=test;Timeout=1",
                 ["BlockCypher:RequestsPerSecond"] = "3",
-                ["BlockCypher:MaxRetries"] = "0"
+                ["BlockCypher:MaxRetries"] = "0",
+                ["SnapshotCollection:Enabled"] = collectionEnabled.ToString(),
+                ["SnapshotCollection:InitialDelaySeconds"] = "0"
             }));
         builder.ConfigureTestServices(services =>
         {

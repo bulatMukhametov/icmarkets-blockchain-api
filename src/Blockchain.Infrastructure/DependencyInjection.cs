@@ -1,5 +1,6 @@
 using Blockchain.Application.Abstractions;
 using Blockchain.Infrastructure.BlockCypher;
+using Blockchain.Infrastructure.Collection;
 using Blockchain.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -21,6 +22,9 @@ public static class DependencyInjection
         services.AddScoped<IBlockchainSnapshotRepository, BlockchainSnapshotRepository>();
         services.AddSingleton<ISnapshotCapture, ScopedSnapshotCapture>();
         services.TryAddSingleton(TimeProvider.System);
+        services.AddOptions<SnapshotCollectionOptions>().Bind(configuration.GetSection(SnapshotCollectionOptions.Section))
+            .ValidateDataAnnotations().ValidateOnStart();
+        services.AddHostedService<SnapshotCollectionWorker>();
         services.AddOptions<BlockCypherOptions>().Bind(configuration.GetSection(BlockCypherOptions.Section))
             .ValidateDataAnnotations()
             .Validate(x => Uri.TryCreate(x.BaseUrl, UriKind.Absolute, out var uri) &&
@@ -28,6 +32,7 @@ public static class DependencyInjection
                 "BaseUrl must be HTTPS (or loopback for tests), with a trailing slash.")
             .ValidateOnStart();
         services.AddSingleton<ProviderRequestGate>();
+        services.AddSingleton<ProviderCircuitBreaker>();
         services.AddHttpClient<IBlockchainDataClient, BlockCypherClient>((provider, client) =>
         {
             var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<BlockCypherOptions>>().Value;

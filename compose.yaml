@@ -20,7 +20,7 @@ services:
     build: .
     command: ["--migrate"]
     environment:
-      ConnectionStrings__Blockchain: Host=postgres;Database=blockchain;Username=blockchain;Password=${POSTGRES_PASSWORD:-local-development-only}
+      ConnectionStrings__Blockchain: Host=postgres;Database=blockchain;Username=blockchain;Password=${POSTGRES_PASSWORD:-local-development-only};GSS Encryption Mode=Disable
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,7 +34,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Swagger__Enabled: "true"
-      ConnectionStrings__Blockchain: Host=postgres;Database=blockchain;Username=blockchain;Password=${POSTGRES_PASSWORD:-local-development-only}
+      SnapshotCollection__Enabled: ${SNAPSHOT_COLLECTION_ENABLED:-false}
+      SnapshotCollection__IntervalSeconds: ${SNAPSHOT_COLLECTION_INTERVAL_SECONDS:-600}
+      ConnectionStrings__Blockchain: Host=postgres;Database=blockchain;Username=blockchain;Password=${POSTGRES_PASSWORD:-local-development-only};GSS Encryption Mode=Disable
     depends_on:
       migrate:
         condition: service_completed_successfully

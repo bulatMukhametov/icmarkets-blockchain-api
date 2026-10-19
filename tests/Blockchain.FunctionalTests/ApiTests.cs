@@ -9,6 +9,53 @@ namespace Blockchain.FunctionalTests;
 public sealed class ApiTests
 {
     [Fact]
+    public async Task Enabled_worker_populates_all_chain_histories_without_a_capture_request()
+    {
+        await using var factory = new ApiFactory(collectionEnabled: true);
+        using var http = factory.CreateClient();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        foreach (var chain in Blockchain.Domain.ChainId.Supported)
+        {
+            SnapshotHistoryResponse? history;
+            do
+            {
+                history = await http.GetFromJsonAsync<SnapshotHistoryResponse>(
+                    $"/api/chains/{chain.Coin}/{chain.Network}/snapshots", deadline.Token);
+                if (history!.Items.Count == 0) await Task.Delay(25, deadline.Token);
+            } while (history.Items.Count == 0);
+            Assert.Single(history.Items);
+        }
+        Assert.Equal(5, factory.ProviderRequests);
+    }
+
+    [Fact]
+    public async Task Open_circuit_returns_503_and_retry_after_while_history_and_batch_contract_remain_available()
+    {
+        await using var factory = new ApiFactory();
+        using var http = factory.CreateClient();
+        using var created = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        factory.FailingCoin = "btc";
+        for (var i = 0; i < 4; i++)
+        {
+            using var failure = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+            Assert.Equal(HttpStatusCode.BadGateway, failure.StatusCode);
+        }
+        using var blocked = await http.PostAsync("/api/chains/eth/main/snapshots", null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, blocked.StatusCode);
+        Assert.InRange(blocked.Headers.RetryAfter!.Delta!.Value.TotalSeconds, 1, 30);
+        Assert.Equal("application/problem+json", blocked.Content.Headers.ContentType?.MediaType);
+        var history = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/btc/main/snapshots");
+        Assert.Single(history!.Items);
+        using var collection = await http.PostAsync("/api/snapshot-collections", null);
+        Assert.Equal(HttpStatusCode.OK, collection.StatusCode);
+        var results = (await collection.Content.ReadFromJsonAsync<CaptureResult[]>())!;
+        Assert.Equal(5, results.Length);
+        Assert.All(results, result => { Assert.False(result.Succeeded); Assert.Equal("provider_circuit_open", result.Error); });
+        Assert.Equal(5, factory.ProviderRequests);
+    }
+
+    [Fact]
     public async Task Capture_returns_location_raw_payload_and_readable_history_without_refetching()
     {
         await using var factory = new ApiFactory();

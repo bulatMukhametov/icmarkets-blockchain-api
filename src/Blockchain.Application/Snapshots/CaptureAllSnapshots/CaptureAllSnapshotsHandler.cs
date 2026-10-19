@@ -26,7 +26,8 @@ public sealed class CaptureAllSnapshotsHandler(ISnapshotCapture capture)
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (ProviderException ex)
         {
-            return new(chain.Coin, chain.Network, null, ex.TimedOut ? "provider_timeout" : "provider_unavailable");
+            return new(chain.Coin, chain.Network, null, ex is ProviderCircuitOpenException ? "provider_circuit_open"
+                : ex.TimedOut ? "provider_timeout" : "provider_unavailable");
         }
         // Persistence errors propagate: a database outage must not be disguised as a provider failure.
     }

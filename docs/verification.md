@@ -1,30 +1,86 @@
 # Verification record
 
-Verified on 2026-10-18 in the Windows development workspace.
+Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
 
 ## Completed
 
 - .NET SDK 10.0.402; dependencies restored with NuGet vulnerability warnings treated as errors.
 - Release solution build: zero warnings and errors.
-- Release tests: 28 passed, zero failed, zero skipped.
+- Latest Release tests: 60 passed, zero failed, zero skipped.
   - Unit: 7.
-  - Integration: 11, including PostgreSQL migration/model consistency, complete payload preservation,
-    currency/network isolation and keyset pagination with equal timestamps.
-  - Functional: 10, including HTTP-to-PostgreSQL capture/history and concurrent partial collection.
-- PostgreSQL tests used a temporary local PostgreSQL 17.11 instance through TEST_POSTGRES_CONNECTION.
+  - Integration: 41, including background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
+    consistency, complete payload preservation, currency/network isolation and keyset pagination.
+  - Functional: 12, including automatic capture without POST, HTTP-to-PostgreSQL capture/history,
+    concurrent partial collection and the circuit-open HTTP/batch contracts.
+- The original 28-test suite used a temporary local PostgreSQL 17.11 instance through TEST_POSTGRES_CONNECTION.
   Each test fixture created and removed its own schema.
+- The latest complete Release suite ran with RUN_DATABASE_TESTS=true and TEST_POSTGRES_CONNECTION
+  unset: 60 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
+  containers and cleaned them up successfully. The test host ran on Windows.
 - Release publish succeeded with UseAppHost=false, as used by the Docker build.
 - Published assembly applied migrations to a fresh database through --migrate.
 - Published Kestrel host: liveness 200, readiness 200, five supported sources, Swagger JSON available.
 - A real BTC mainnet capture through the published API returned 201. The stored snapshot was returned
-  by GET history. The external provider was called only for this manual smoke test; automated tests
-  use controlled responses.
+  by GET history. Automated tests use controlled provider responses; live upstream calls are limited
+  to the manual smoke checks described here.
 
-## Prepared, not executed here
+## Docker verification
 
-- Linux Docker image build and Docker Compose startup: Docker is not installed on this host.
-- Testcontainers startup path: the same PostgreSQL tests ran against a local PostgreSQL connection;
-  the container provisioning path is configured for CI.
-- GitHub Actions: workflow prepared, execution requires publishing the repository.
+- Docker Desktop 4.95.0 installed with the WSL 2 backend; Docker Engine 29.8.2 and Compose 5.6.0.
+- `docker compose config --quiet` and `docker compose up --build -d` succeeded.
+- The multi-stage Dockerfile restored and published the application inside Linux, producing a
+  linux/amd64 runtime image. The API runs as non-root UID 1654.
+- PostgreSQL became healthy, the migration container exited with code 0, and the API started on
+  localhost:5080. Liveness, readiness and Swagger JSON returned 200.
+- A live collection succeeded for all five sources: eth/main, dash/main, btc/main, btc/test3 and
+  ltc/main. Each saved snapshot was retrieved by ID with the expected provider payload name.
+- An additional BTC capture returned 201 with a working Location. History returned the newest
+  snapshot first; cursor pagination returned the preceding snapshot without duplication.
+- Invalid page size returned 400; requesting a mainnet snapshot through the testnet route returned 404.
+- `docker compose down` followed by `docker compose up -d` preserved the database volume and the
+  snapshot payload unchanged. Migrations exited with code 0 again, readiness returned 200, and a new
+  capture returned 201.
+- The initial run exposed Npgsql's optional Kerberos library probe in the logs. Compose now explicitly
+  sets GSS Encryption Mode=Disable for its local password-authenticated database. The recreated API
+  and migration containers emitted neither that warning nor Error/Critical application logs during
+  the repeat startup, read and capture checks.
+- TRX reports and manual check results were generated under TestResults/docker/ (ignored by Git).
 
-Do not interpret this record as a successful Docker/CI run. See README for reproducible commands.
+## Circuit breaker verification
+
+- Added 20 integration cases and one HTTP contract test. FakeTimeProvider drives circuit windows,
+  recovery pauses and attempt timeouts; recovery tests explicitly synchronize with the probe start.
+- Verified the default minimum throughput/failure ratio, sampling expiry, sharing across clients and
+  chains, open-circuit fast rejection without new quota reservations, a single concurrent half-open
+  probe, successful recovery, failed/cancelled probe reopening, and admission recheck after the gate.
+- Verified retry suppression and classification of HTTP errors, network failures, body-read errors,
+  attempt timeouts, caller cancellation, invalid payloads and local quota exhaustion.
+- HTTP tests verify 503 with Retry-After, continued history access and provider_circuit_open batch
+  outcomes without extra upstream calls.
+- Circuit breaker TRX reports are under TestResults/circuit-breaker-final/ (ignored by Git).
+- Load capacity, freshness SLAs and multi-replica coordination have not been benchmarked or validated.
+
+## Background collection verification (2026-10-19)
+
+- Added ten integration cases using virtual time: disabled behavior, initial/fixed delays, separate
+  disposed scopes, partial-success continuation, recovery after storage errors and cycle timeouts,
+  non-overlap, shutdown cancellation during capture/startup delay, and invalid option rejection.
+- Added an HTTP host test that enables the real hosted service and reads automatically populated
+  histories for all five chains without issuing capture POST requests. Upstream responses and the
+  repository are controlled test doubles in this functional test.
+- The full Release suite passed all 60 tests with database tests enabled. Reports are under
+  TestResults/background-worker/ (ignored by Git).
+- The updated Linux Docker image built and published successfully.
+- Enabled automatic collection temporarily in Compose: the worker logged 5/5 saved; GET history
+  returned new snapshots 9..13 across all five chains without any capture POST. Readiness returned 200.
+  Initial localhost polling with a two-second request timeout failed to observe the rows; subsequent
+  IPv4 loopback requests with a longer timeout verified all rows. The API was then verified with
+  collection disabled again, leaving PostgreSQL and the API running. Evidence is recorded in
+  TestResults/background-worker/docker-smoke.json.
+
+## Not verified
+
+- A successful GitHub Actions run has not been confirmed. The local checks above do not establish
+  the status of the remote workflow.
+
+See README for reproducible commands.

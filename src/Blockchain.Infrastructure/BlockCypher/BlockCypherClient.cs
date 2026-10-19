@@ -9,36 +9,34 @@ using Microsoft.Extensions.Options;
 
 namespace Blockchain.Infrastructure.BlockCypher;
 
-public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
+public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate, ProviderCircuitBreaker circuit,
     IOptions<BlockCypherOptions> options, TimeProvider clock, ILogger<BlockCypherClient> logger)
     : IBlockchainDataClient
 {
     public async Task<ProviderSnapshot> FetchAsync(ChainId chain, CancellationToken cancellationToken)
     {
         var settings = options.Value;
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budget.CancelAfter(TimeSpan.FromSeconds(settings.TotalTimeoutSeconds));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(settings.TotalTimeoutSeconds), clock);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         var started = Stopwatch.GetTimestamp();
         DateTimeOffset? requestedAt = null;
         try
         {
             for (var attempt = 0; ; attempt++)
             {
+                circuit.ThrowIfUnavailable(budget.Token);
                 await gate.WaitAsync(budget.Token);
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(budget.Token);
-                timeout.CancelAfter(TimeSpan.FromSeconds(settings.AttemptTimeoutSeconds));
-                requestedAt ??= clock.GetUtcNow();
                 try
                 {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, chain.ToString());
-                    using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-                    logger.LogInformation("Provider {Chain} attempt {Attempt}: HTTP {StatusCode}",
-                        chain, attempt + 1, (int)response.StatusCode);
+                    var response = await circuit.ExecuteAsync(token =>
+                    {
+                        requestedAt ??= clock.GetUtcNow();
+                        return SendAttemptAsync(chain, attempt, settings, token);
+                    }, budget.Token);
                     if (IsTransient(response.StatusCode) && attempt < settings.MaxRetries)
                     {
-                        var retryAfter = response.Headers.RetryAfter;
-                        var wait = retryAfter?.Delta ?? (retryAfter?.Date - clock.GetUtcNow())
-                            ?? TimeSpan.FromMilliseconds(500 * (attempt + 1));
+                        circuit.ThrowIfUnavailable(budget.Token);
+                        var wait = response.RetryAfter ?? TimeSpan.FromMilliseconds(500 * (attempt + 1));
                         if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
                         // Long Retry-After values must not turn an HTTP request into a background job.
                         if (wait > TimeSpan.FromSeconds(5))
@@ -46,18 +44,14 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
                         await Task.Delay(wait, clock, budget.Token);
                         continue;
                     }
-                    if (!response.IsSuccessStatusCode)
+                    if ((int)response.StatusCode is < 200 or >= 300)
                         throw new ProviderException($"Provider returned HTTP {(int)response.StatusCode}.");
-                    var payload = await ReadPayloadAsync(response, settings.MaxResponseBytes, timeout.Token);
-                    ValidatePayload(payload, chain);
-                    return new(payload, requestedAt.Value);
+                    return new(response.Payload!, requestedAt!.Value);
                 }
-                catch (HttpRequestException) when (attempt < settings.MaxRetries)
+                catch (Exception ex) when (attempt < settings.MaxRetries &&
+                    ex is HttpRequestException or IOException or ProviderAttemptTimeoutException)
                 {
-                    await Task.Delay(TimeSpan.FromMilliseconds(500), clock, budget.Token);
-                }
-                catch (OperationCanceledException) when (!budget.IsCancellationRequested && attempt < settings.MaxRetries)
-                {
+                    circuit.ThrowIfUnavailable(budget.Token);
                     await Task.Delay(TimeSpan.FromMilliseconds(500), clock, budget.Token);
                 }
             }
@@ -68,10 +62,34 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestGate gate,
         }
         catch (HttpRequestException ex) { throw new ProviderException("Provider could not be reached.", inner: ex); }
         catch (IOException ex) { throw new ProviderException("Provider response could not be read.", inner: ex); }
+        catch (ProviderAttemptTimeoutException ex) { throw new ProviderException("Provider request timed out.", timedOut: true, inner: ex); }
         finally
         {
             logger.LogInformation("Provider {Chain} finished in {ElapsedMs} ms", chain,
                 Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+    }
+
+    private async ValueTask<ProviderAttemptResult> SendAttemptAsync(ChainId chain, int attempt,
+        BlockCypherOptions settings, CancellationToken token)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(settings.AttemptTimeoutSeconds), clock);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, chain.ToString());
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            logger.LogInformation("Provider {Chain} attempt {Attempt}: HTTP {StatusCode}", chain, attempt + 1, (int)response.StatusCode);
+            var retryAfter = response.Headers.RetryAfter;
+            var delay = retryAfter?.Delta ?? (retryAfter?.Date - clock.GetUtcNow());
+            if (!response.IsSuccessStatusCode) return new(response.StatusCode, null, delay);
+            var payload = await ReadPayloadAsync(response, settings.MaxResponseBytes, timeout.Token);
+            ValidatePayload(payload, chain);
+            return new(response.StatusCode, payload, delay);
+        }
+        catch (OperationCanceledException ex) when (!token.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new ProviderAttemptTimeoutException(ex);
         }
     }
 

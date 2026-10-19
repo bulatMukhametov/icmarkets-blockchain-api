@@ -33,10 +33,16 @@ public interface ISnapshotCapture
     Task<BlockchainSnapshot> CaptureAsync(ChainId chain, CancellationToken cancellationToken);
 }
 
-public sealed class ProviderException(string message, bool timedOut = false, Exception? inner = null)
+public class ProviderException(string message, bool timedOut = false, Exception? inner = null)
     : Exception(message, inner)
 {
     public bool TimedOut { get; } = timedOut;
+}
+
+public sealed class ProviderCircuitOpenException(TimeSpan retryAfter, Exception? inner = null)
+    : ProviderException("Provider circuit is open; retry later.", inner: inner)
+{
+    public TimeSpan RetryAfter { get; } = retryAfter > TimeSpan.Zero ? retryAfter : TimeSpan.FromSeconds(1);
 }
 
 public sealed class RequestValidationException(string field, string message) : Exception(message)

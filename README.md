@@ -5,7 +5,7 @@ and query the stored observation history. .NET 10, ASP.NET Core, EF Core and Pos
 
 ## Quick start: Linux containers
 
-Requires Docker Engine/Desktop with Linux containers and Docker Compose v2.
+Requires Docker Engine/Desktop with Linux containers and Docker Compose v2 or later.
 
 ```sh
 docker compose up --build -d
@@ -26,6 +26,10 @@ docker compose down
 The database volume survives `down`. Set POSTGRES_PASSWORD in a local `.env` when overriding the demo
 password; `.env.example` documents the default. Changing it on an existing volume does not change the
 database role password. No provider token is needed for these read-only upstream calls.
+
+The local Compose database uses password authentication without Kerberos. Its connection strings set
+`GSS Encryption Mode=Disable` to avoid Npgsql 10 probing for a missing Kerberos library in the runtime
+image, as described in the [Npgsql release notes](https://www.npgsql.org/doc/release-notes/10.0.html#cannot-load-library-libgssapi_krb5so2-when-kerberos-is-not-installed).
 
 ## Local .NET profile
 
@@ -78,9 +82,10 @@ History is ordered by CreatedAt DESC, Id DESC; pageSize is 1..100. Follow `nextC
 Encode the returned cursor as a URL query parameter. Do not interpret its contents as a stable API contract.
 
 Invalid parameters/cursors return 400 with ValidationProblemDetails; missing snapshots return 404.
-Provider errors return 502, provider timeouts 504, incoming capture saturation 429, unexpected storage
-failures 500. Error responses contain a trace ID and omit internal exceptions. A batch reports provider
-errors per chain; a storage failure returns 500 and does not roll back already committed captures.
+Provider errors return 502, provider timeouts 504, an open circuit returns 503 with Retry-After,
+incoming capture saturation returns 429, and unexpected storage failures return 500. Error responses
+contain a trace ID and omit internal exceptions. A batch reports provider errors per chain (including
+`provider_circuit_open`); a storage failure returns 500 and does not roll back already committed captures.
 
 ## Configuration
 
@@ -96,6 +101,14 @@ ASP.NET configuration supports environment variables with `__` separators.
 | `BlockCypher:TotalTimeoutSeconds` | 45 | Provider operation budget including waits/retries |
 | `BlockCypher:MaxRetries` | 1 | Additional attempts; range 0..2 |
 | `BlockCypher:MaxResponseBytes` | 1048576 | Maximum accepted response body |
+| `BlockCypher:CircuitBreakerFailureRatio` | 0.5 | Availability failure ratio that opens the circuit; range 0.01..1 |
+| `BlockCypher:CircuitBreakerMinimumThroughput` | 5 | Minimum attempts in the sampling window; range 2..100 |
+| `BlockCypher:CircuitBreakerSamplingSeconds` | 30 | Sampling window; range 1..300 seconds |
+| `BlockCypher:CircuitBreakerBreakSeconds` | 30 | Open duration before a recovery probe; range 1..300 seconds |
+| `SnapshotCollection:Enabled` | false | Enable automatic collection of all five chains in this API process |
+| `SnapshotCollection:IntervalSeconds` | 600 | Delay after a cycle completes; range 1..86400 seconds |
+| `SnapshotCollection:InitialDelaySeconds` | 10 | Delay before the first cycle; range 0..3600 seconds |
+| `SnapshotCollection:CycleTimeoutSeconds` | 120 | Cooperative timeout for the entire cycle, including persistence; range 1..600 seconds |
 | `Cors:AllowedOrigins` | `http://localhost:5173` | Explicit browser origins |
 | `Swagger:Enabled` | false | Enable Swagger outside Development |
 
@@ -103,6 +116,46 @@ The [provider documents](https://www.blockcypher.com/dev/#rate-limits-and-tokens
 of 3 requests/sec and 100 requests/hour. All attempts consume the local quota, including retries.
 Quota exhaustion fails promptly; external 429s are handled through bounded retries. The quota is shared
 inside one process only, resets on restart and does not coordinate other applications using the same IP.
+
+A shared Polly circuit breaker monitors individual provider attempts, including retries. With the
+defaults, at least five attempts in 30 seconds and a failure ratio of at least 50% open the circuit for
+30 seconds. It then admits one recovery probe. Network/body-read failures, per-attempt timeouts, HTTP
+408 and 5xx count as availability failures. HTTP 429, other 4xx, payload validation, local quota errors
+and caller cancellation during normal operation do not trip the circuit. A cancelled recovery probe
+reopens it, because cancellation does not establish that the provider recovered.
+
+New calls fail promptly while the circuit is open; retries stop and requests waiting at the outbound
+gate recheck circuit admission before sending. Calls already sent may finish. The circuit is shared
+by all five networks in one process and resets on restart. GET history and database readiness do not
+depend on the circuit. HTTP 429 still uses the existing bounded retry handling; a shared Retry-After
+cooldown across concurrent calls is not implemented.
+
+## Background collection
+
+An optional BackgroundService invokes the same CaptureAllSnapshots command as the collection endpoint.
+Enable it locally with `SnapshotCollection__Enabled=true`. For Compose, set
+`SNAPSHOT_COLLECTION_ENABLED=true` in `.env` and run `docker compose up -d`.
+`SNAPSHOT_COLLECTION_INTERVAL_SECONDS` overrides the Compose interval (default 600).
+Configuration changes require restarting/recreating the API process.
+
+The first cycle starts after 10 seconds. Each cycle gets a fresh async DI scope; each parallel chain
+capture still owns its own DbContext. The next delay starts after completion, so automatic cycles never
+overlap and missed runs do not accumulate. Shutdown cancels active work. A 120-second cooperative cycle
+timeout covers fetching and saving; successful commits survive partial failures or cancellation.
+Provider failures are logged per chain; database errors and timeouts are logged at cycle level. The
+worker continues after the configured delay. Migration-only execution (`--migrate`) never starts it.
+
+Manual captures can run concurrently with automatic capture; both share the same in-process outbound
+quota and circuit breaker. The worker does not consume the HTTP endpoint's concurrency permits. At
+600 seconds, successful automatic cycles consume about 30 provider requests/hour before retries;
+manual calls share the remaining budget. Configuring one second does not override provider limits or
+guarantee one-second freshness. Every successful collection appends a snapshot, including unchanged data.
+
+Enable collection on only one instance. There is no distributed lock, durable schedule, catch-up after
+downtime or exactly-once guarantee. Other API instances must disable it; their manual captures still need
+shared quota coordination before using the same provider budget. For independently scaled ingestion,
+move the hosted service to a dedicated worker host and coordinate all provider access. Readiness still
+measures database access, not freshness; monitor collection logs and snapshot age separately.
 
 ## Tests
 
@@ -146,7 +199,7 @@ functional behavior respectively. CI enables PostgreSQL tests and builds the Lin
 See [architecture decisions](docs/architecture.md) for tradeoffs, failure semantics and scaling limits.
 See [verification record](docs/verification.md) for completed checks and environment limitations,
 and [sample requests](requests.http) for an executable HTTP walkthrough.
-Event Sourcing, a gateway and a scheduler are intentionally outside the current requirements.
+Event Sourcing, a gateway and a durable distributed scheduler are outside the current implementation.
 
 To add a migration:
 

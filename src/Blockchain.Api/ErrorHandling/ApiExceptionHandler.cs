@@ -1,4 +1,5 @@
 using Blockchain.Application.Abstractions;
+using System.Globalization;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,6 +20,11 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problems, ILogger
         {
             detail = new ValidationProblemDetails(new Dictionary<string, string[]> { [validation.Field] = [validation.Message] })
             { Status = 400, Title = "Request validation failed." };
+        }
+        else if (exception is ProviderCircuitOpenException circuit)
+        {
+            detail = new ProblemDetails { Status = 503, Title = "Provider temporarily unavailable; retry later." };
+            context.Response.Headers.RetryAfter = Math.Ceiling(circuit.RetryAfter.TotalSeconds).ToString(CultureInfo.InvariantCulture);
         }
         else if (exception is ProviderException provider)
         {

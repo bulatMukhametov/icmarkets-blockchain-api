@@ -46,6 +46,25 @@ waiting and retry delays. Retries apply to network failures, timeouts, 408, 429 
 values are respected; long delays fail the request. Non-successful, invalid, oversized or wrong-chain
 responses never become snapshots. Redirects are disabled. User-provided source URLs are not accepted.
 
+A singleton Polly circuit breaker is shared across typed clients and all chains for the configured
+provider. It samples individual HTTP attempts, including retries: by default at least five attempts
+in 30 seconds with an availability failure ratio of 50% open it for 30 seconds. Network errors,
+body-read I/O errors, per-attempt timeouts, 408 and 5xx count as failures. HTTP 429 and other 4xx,
+payload validation, local gate failures and normal caller cancellation do not trip it. A cancelled
+half-open probe reopens the circuit instead of claiming recovery or keeping the probe occupied.
+
+Execution order is: total budget -> retry loop -> fast circuit check -> request gate -> authoritative
+circuit admission -> attempt timeout -> send/read/validate. Checking admission after the gate prevents
+waiting requests from sending after another attempt opens the circuit. Gate reservations made during
+an opening race may conservatively remain charged to the hourly budget. Already sent attempts can finish.
+An open circuit is never retried locally. After the break, Polly admits one probe to establish availability.
+Transitions are logged. Polly types remain in Infrastructure; Application exposes a provider-circuit
+exception, mapped to HTTP 503 with Retry-After or a per-chain provider_circuit_open batch outcome.
+
+This is an availability circuit for the provider as a whole. Quota errors remain separate: the existing
+429 retry delay is per operation, not a shared provider cooldown. Circuit state is process-local, just
+like the outbound quota; multiple replicas need an explicit ingestion/coordination design.
+
 Batch capture starts five independent operations, each owning a DI scope and DbContext. Provider failures
 are reported per chain, preserving successful observations. Request cancellation propagates. A persistence
 failure causes HTTP 500; already committed snapshots remain. Neither HTTP requests nor the whole batch
@@ -68,10 +87,23 @@ to migrate the database. The API container runs as the built-in non-root user.
 
 ## 6. Deliberate limits and growth path
 
-No scheduler, queue, API Gateway, cache or Event Sourcing is required by these use cases. If automated
-capture becomes necessary, a worker can invoke the same command. Multiple replicas would need a shared
-provider quota gate or a single ingestion worker; the current in-memory quota is per process and resets
-on restart. Batch concurrency is fixed by the five-entry catalog.
+An opt-in SnapshotCollectionWorker (BackgroundService) invokes the existing CaptureAllSnapshots command
+in a fresh async scope. It runs in the API host, preserving the same provider gate/circuit and storage
+semantics as manual capture. A fixed delay after completion prevents overlapping automatic cycles or
+catch-up bursts. Each cycle has a cooperative timeout, including persistence, and shutdown cancellation
+propagates to all captures. Provider failures are reported individually; other failures are logged and
+the next cycle runs after the configured delay. Already committed observations are never rolled back.
+The worker is not started in migration-only mode. Options are validated on startup; defaults disable
+automatic collection, with a 10-second initial delay, 600-second interval and 120-second cycle timeout.
+
+This is a process-local scheduler: run it on exactly one instance. Scaling API replicas does not elect
+a collection leader. A dedicated worker host and shared provider quota coordination are the growth path
+when ingestion needs independent deployment; simply enabling this service on every replica would duplicate
+observations and multiply provider requests. Manual calls can overlap with a background cycle and share
+the local quota. There is no durable schedule, missed-run recovery, distributed lock or exactly-once claim.
+Batch concurrency is fixed by the five-entry catalog. No queue, API Gateway, cache or Event Sourcing is
+introduced. Health readiness is unchanged and does not imply recent data; snapshot age must be monitored
+separately. One-second scheduling cannot overcome the configured hourly provider quota.
 
 This exercise has no authentication requirement and is bound to localhost in Compose. Before exposing
 capture publicly, add authentication/authorization and a shared quota policy. Retention, backup and
