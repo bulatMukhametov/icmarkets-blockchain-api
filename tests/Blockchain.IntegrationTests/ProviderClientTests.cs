@@ -32,7 +32,6 @@ public sealed class ProviderClientTests
         var result = await harness.Client.FetchSnapshotAsync(Btc, default);
         Assert.Equal(2, count);
         Assert.Equal(json, result.RawResponseJson);
-        Assert.True(result.CreatedAt <= DateTimeOffset.UtcNow);
     }
 
     [Fact]

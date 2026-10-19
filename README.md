@@ -3,6 +3,25 @@
 ICMarkets .NET exercise: capture BlockCypher chain summaries, preserve their complete JSON responses,
 and query the stored observation history. .NET 10, ASP.NET Core, EF Core and PostgreSQL.
 
+## Assignment coverage
+
+| Requirement | Implementation |
+| --- | --- |
+| Clean or vertical architecture with SOLID | Domain, Application, Infrastructure and API projects; use-case handlers depend on application interfaces |
+| Store data from the five listed BlockCypher URLs | Initial catalog contains ETH main, DASH main, BTC main/test3 and LTC main; captures store complete response JSON |
+| Swagger endpoints and stored history | Capture, batch capture, catalog and history endpoints; Swagger UI in Development and local Compose |
+| Additional CreatedAt and descending history | UTC capture-start timestamp; history ordered by CreatedAt DESC, Id DESC; interpretation explained below |
+| Health checks and CORS | Separate liveness/readiness endpoints and explicit allowed browser origins |
+| DI, logging, mapping, serialization and validation | Constructor injection, structured logs, explicit response mapping, System.Text.Json and FluentValidation |
+| Integration, Functional and Unit test projects | Three projects; PostgreSQL integration uses Testcontainers when database tests are enabled |
+| Local .NET and Linux Docker execution | Launch profiles and a multi-stage Dockerfile with Compose database/migration/API services |
+| .NET >= 6 and a chosen database | .NET 10 and PostgreSQL 17 through EF Core |
+| Performance, inheritance and scalability considerations | Async I/O, indexed history, no-tracking reads and documented scaling limits; BackgroundService and AbstractValidator inheritance where useful, without artificial entity hierarchies |
+| Asynchronous or parallel patterns | async/await and Task.WhenAll for collecting configured networks |
+| At least two design patterns | CQRS and specialized Repository; EF Core DbContext provides the unit-of-work behavior |
+| Optional API Gateway | Deliberately omitted for a single API deployment |
+| Public GitHub repository, README, main/development branches | Repository link and final delivery checks are listed at the end; local changes still need to be committed and published before submission |
+
 ## What the application stores
 
 A **blockchain network** is a currency/network pair: `btc/main` is Bitcoin mainnet, while `btc/test3`
@@ -51,12 +70,14 @@ Requires .NET 10 SDK and PostgreSQL 17 (or start only the database with `docker 
 ```sh
 dotnet restore Blockchain.slnx
 dotnet build Blockchain.slnx
-dotnet run --project src/Blockchain.Api -- --migrate
+dotnet run --project src/Blockchain.Api --launch-profile http -- --migrate
 dotnet run --project src/Blockchain.Api --launch-profile http
 ```
 
-Default PostgreSQL connection: localhost:5432, database/user `blockchain`, password
-`local-development-only`. Override using `ConnectionStrings__Blockchain`. The `https` launch profile
+The Development settings contain a demo PostgreSQL connection: localhost:5432, database/user
+`blockchain`, password `local-development-only`, matching local Compose. This is a public demo value,
+not a deployment secret. Override it with User Secrets or `ConnectionStrings__Blockchain`.
+The `https` launch profile
 also listens on port 7080 and requires a trusted development certificate (`dotnet dev-certs https --trust`).
 
 For this Windows workspace a local SDK is available under `.tools/dotnet` (ignored by Git).
@@ -70,6 +91,36 @@ Fresh clones need their own .NET 10 SDK installation; the helper falls back to t
 
 The development profile enables Swagger. Outside Development enable it explicitly with
 `Swagger__Enabled=true`. HTTPS termination for containers belongs at the deployment ingress.
+
+### Configuration and secrets
+
+- `appsettings.json`: shared non-secret settings (provider limits/timeouts, worker schedule, logging).
+  No connection string is supplied here; CORS origins are empty by default.
+- `appsettings.Development.json`: local demo database connection and localhost CORS origin.
+- User Secrets: personal development credentials stored outside the repository. The API project
+  includes a UserSecretsId; the default host loads them in Development. They are not encrypted
+  and are not a production secret store.
+- `launchSettings.json`: local HTTP/HTTPS launch profiles and the Development environment.
+- `.env`: optional Docker Compose overrides; ignored by Git and Docker build context.
+  Copy `.env.example` to start. .NET does not read this file directly.
+- `compose.yaml`: a local demonstration deployment; supplies connection strings through environment
+  variables for both migration and API containers, and explicitly enables local Swagger/CORS.
+- Deployments: supply settings through environment variables and actual credentials through the
+  hosting platform's secret store. The shared appsettings file provides no production credentials.
+
+To override the local connection, replace the placeholder with your actual development connection:
+
+```sh
+dotnet user-secrets set "ConnectionStrings:Blockchain" "<your PostgreSQL connection string>" --project src/Blockchain.Api
+```
+
+Default precedence (later wins): appsettings.json, appsettings.{Environment}.json, Development User
+Secrets, environment variables, command-line arguments. Environment keys use double underscores,
+for example `ConnectionStrings__Blockchain` or `BlockCypher__MaxRetries`.
+`appsettings.Local.json` is ignored as a precaution but is not loaded; use User Secrets instead.
+The design-time EF factory requires `ConnectionStrings__Blockchain` when using `dotnet ef` and does
+not read User Secrets. The `--migrate` application mode uses the normal host configuration above.
+Provider and worker Options are still validated at startup.
 
 ## HTTP contract
 
@@ -91,7 +142,11 @@ The visible LTC URL in the brief is used; its PDF hyperlink incorrectly points t
 or transactions linked from those documents. GET history never triggers collection.
 
 A snapshot response contains `id`, `coin`, `network`, `createdAt` and `payload` (a JSON object).
-CreatedAt is UTC request-start time, not the provider's `time` field or insertion-completion time.
+CreatedAt is the UTC time captured in CaptureSnapshotHandler immediately before calling the provider client.
+It includes local limiter waiting and retries; it is not the provider block time or database insertion time.
+The brief describes the timestamp as the time requested from the API endpoint, without distinguishing
+the incoming request from the outgoing provider call. This solution interprets it as the start of
+fetching one network, after validation/catalog lookup. That definition also works for background collection.
 Every successful POST appends an observation, even if the blockchain did not change.
 History uses simple page-number pagination, ordered by CreatedAt DESC, Id DESC.
 `page` starts at 1 (default 1), and `pageSize` is 1..100 (default 20).
@@ -126,7 +181,7 @@ ASP.NET configuration supports environment variables with `__` separators.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `ConnectionStrings:Blockchain` | Local development connection | PostgreSQL |
+| `ConnectionStrings:Blockchain` | Demo connection in Development only | Supply via User Secrets or environment for other connections |
 | `BlockCypher:BaseUrl` | `https://api.blockcypher.com/v1/` | HTTPS provider URL; trailing slash required |
 | `BlockCypher:RequestsPerSecond` | 2 | Spaced attempts; validated range 1..3 |
 | `BlockCypher:RequestsPerHour` | 90 | Rolling per-process attempt budget; range 1..100 |
@@ -142,12 +197,12 @@ ASP.NET configuration supports environment variables with `__` separators.
 | `SnapshotCollection:IntervalSeconds` | 600 | Delay after a cycle completes; range 1..86400 seconds |
 | `SnapshotCollection:InitialDelaySeconds` | 10 | Delay before the first cycle; range 0..3600 seconds |
 | `SnapshotCollection:CycleTimeoutSeconds` | 120 | Cooperative timeout for the entire cycle, including persistence; range 1..600 seconds |
-| `Cors:AllowedOrigins` | `http://localhost:5173` | Explicit browser origins |
+| `Cors:AllowedOrigins` | Empty; localhost:5173 in Development/local Compose | Explicit browser origins |
 | `Swagger:Enabled` | false | Enable Swagger outside Development |
 
 The [provider documents](https://www.blockcypher.com/dev/#rate-limits-and-tokens) a free-tier ceiling
 of 3 requests/sec and 100 requests/hour. All attempts consume the local quota, including retries.
-Quota exhaustion fails promptly; external 429s are handled through bounded retries. The quota is shared
+Quota exhaustion fails promptly; external 429s fail without retries. The quota is shared
 inside one process only, resets on restart and does not coordinate other applications using the same IP.
 
 A shared Polly circuit breaker monitors individual provider attempts, including retries. With the
@@ -160,13 +215,11 @@ reopens it, because cancellation does not establish that the provider recovered.
 New calls fail promptly while the circuit is open; retries stop and requests waiting at the outbound
 gate recheck circuit admission before sending. Calls already sent may finish. The circuit is shared
 by all configured networks in one process and resets on restart. GET history and database readiness do not
-depend on the circuit. HTTP 429 applies a shared Retry-After cooldown to the provider limiter, including
-on the final attempt. Both delta-seconds and HTTP-date headers are supported; a missing header uses
-one second. New or still-waiting calls fail promptly during this pause without consuming quota, while
-already admitted requests may finish. A later response can extend but never shorten the pause.
-The original call may retry after a short delay (up to five seconds); a longer delay fails promptly
-while the shared pause remains active. Cooldown failures keep the existing 502 / provider_unavailable
-contract and do not trip the availability circuit.
+depend on the circuit. Polly retries network/I/O failures, attempt timeouts, HTTP 408 and 5xx with
+a fixed 500 ms delay, up to MaxRetries. Every attempt passes through the shared limiter and breaker.
+HTTP 429 and other non-transient 4xx return 502 / provider_unavailable without retries. Retry-After
+from upstream is not used to pause other calls; a subsequent manual or scheduled capture may try again.
+This intentionally simple policy keeps local rate/quota limiting but does not coordinate provider cooldowns.
 
 ## Background collection
 
@@ -238,7 +291,7 @@ Start reading the code in this order:
 | `src/Blockchain.Application/Snapshots` | Capture one/all networks and read stored history; command/query/result files sit beside their handler |
 | `src/Blockchain.Application/Abstractions` | Command/query handler interfaces |
 | `src/Blockchain.Application/Providers`, `Networks`, `Snapshots`, `Validation` | Provider and catalog ports, snapshot persistence/capture contracts, validation errors |
-| `src/Blockchain.Infrastructure/BlockCypher` | HTTP integration, request limiting, shared cooldown and circuit breaker |
+| `src/Blockchain.Infrastructure/BlockCypher` | HTTP integration, Polly retries, request limiting and circuit breaker |
 | `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, initial catalog, migrations and repositories |
 | `src/Blockchain.Infrastructure/Collection` | Optional periodic capture using the existing application command |
 | `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
@@ -262,12 +315,68 @@ See [verification record](docs/verification.md) for completed checks and environ
 and [sample requests](requests.http) for an executable HTTP walkthrough.
 Event Sourcing, a gateway and a durable distributed scheduler are outside the current implementation.
 
+## Deliberate simplifications and limitations
+
+These are scope decisions, not claims of production readiness or omitted mandatory functionality:
+
+| Decision | Consequence and possible next step |
+| --- | --- |
+| Page-number pagination | Concurrent inserts can shift page boundaries and repeat rows; deep offsets cost more. Cursor pagination is the documented alternative for a larger history. |
+| Task.WhenAll over the configured catalog | Appropriate for the small initial catalog; many networks would create many pending operations/scopes. Add bounded concurrency when catalog size justifies it. |
+| In-process background worker | No durable schedule, catch-up, leader election or exactly-once guarantee. Enable it on one instance; independent scaling needs a worker host and coordination. |
+| Process-local provider quota and circuit state | Limits reset on restart and are not shared between replicas or other clients using the same provider budget. Multiple instances need coordinated provider access. |
+| Simple retry policy | Polly retries transient failures only. HTTP 429 fails without retry or shared Retry-After cooldown; future captures may try again under the local limits. |
+| One implemented provider | New BlockCypher-supported networks can be configured in the database. Replacing BlockCypher requires an adapter, registration and changes to the catalog's collectable-network selection/mapping. |
+| No catalog administration API | Catalog changes use controlled SQL as described in docs/catalog.md; no runtime currency enum limits expansion. |
+| Independent snapshot commits | Partial batch results remain saved. There is no batch-wide transaction or POST idempotency; retrying a capture can append another observation. |
+| One database, no cache or read replicas | Keeps the assignment straightforward. There are no measured throughput/latency guarantees: load and soak testing have not been performed. |
+| No authentication or production operations setup | Compose binds to localhost. Public deployment needs authentication/authorization, secret management, metrics/alerts, retention and a tested backup/restore process. Readiness does not measure data freshness. |
+| No API Gateway or Event Sourcing | A gateway is optional in the brief; CQRS and Repository already meet the pattern requirement. Neither additional component is needed for this scope. |
+
+The three test projects verify behavior and failure handling, not production capacity. Automated provider
+tests use controlled HTTP responses; local live-provider and Docker checks are dated in the verification
+record. Later source changes do not imply the running Docker image has been rebuilt. GitHub Actions
+execution is not claimed as verified.
+
+The catalog migration is **forward-only**: its Down method rejects rollback because the old schema cannot
+represent an extended catalog. Before upgrading an existing database, stop the old application and take
+a backup. Rollback requires a verified pre-upgrade backup and the matching older application version.
+See [catalog migration details](docs/catalog.md#existing-data-and-migration). Creating a backup alone is
+not proof that restoration has been tested.
+
+## Migrations and delivery
+
 To add a migration:
 
 ```sh
 dotnet tool restore
+```
+
+Set a development connection explicitly for the design-time factory (replace the placeholder):
+
+```sh
+# Bash
+export ConnectionStrings__Blockchain='<your PostgreSQL connection string>'
+```
+
+```powershell
+# PowerShell
+$env:ConnectionStrings__Blockchain = '<your PostgreSQL connection string>'
+```
+
+Then run:
+
+```sh
 dotnet ef migrations add MeaningfulName --project src/Blockchain.Infrastructure --startup-project src/Blockchain.Infrastructure --output-dir Persistence/Migrations
 ```
 
-The submission uses `main` and `development`. Publishing the public repository and sending its URL
-are separate submission steps; this project does not send email automatically.
+Repository: [icmarkets-blockchain-api](https://github.com/bulatMukhametov/icmarkets-blockchain-api).
+Before sending the submission:
+
+1. Run the complete suite with database tests enabled and build/smoke-test the final Linux image.
+2. Commit and push the final changes to development, and bring main to the reviewed submission version.
+   Verify that both remote branches exist and that main contains the intended final code.
+3. Verify public repository access and send its URL as requested in the brief. Email submission is manual.
+
+The presence of a repository link or both branches does not imply local changes have already been
+published. Consult the verification record for completed checks; CI configuration is not CI execution evidence.

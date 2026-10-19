@@ -7,8 +7,9 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Blo
 {
     public BlockchainDbContext CreateDbContext(string[] args)
     {
-        var connection = Environment.GetEnvironmentVariable("ConnectionStrings__Blockchain")
-            ?? "Host=localhost;Database=blockchain;Username=blockchain;Password=local-development-only";
+        var connection = Environment.GetEnvironmentVariable("ConnectionStrings__Blockchain");
+        if (string.IsNullOrWhiteSpace(connection))
+            throw new InvalidOperationException("Set ConnectionStrings__Blockchain before running dotnet ef. The design-time factory does not load API User Secrets.");
         return new(new DbContextOptionsBuilder<BlockchainDbContext>().UseNpgsql(connection).Options);
     }
 }

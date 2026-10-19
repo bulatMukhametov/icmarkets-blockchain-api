@@ -8,34 +8,27 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Blockchain.IntegrationTests;
 
-public sealed class ProviderCooldownTests
+public sealed class ProviderThrottlingTests
 {
     [Fact]
-    public async Task Cooldown_blocks_waiting_callers_and_does_not_consume_hourly_quota()
+    public async Task Hourly_quota_is_available_again_after_the_window_expires()
     {
         var clock = new FakeTimeProvider();
         using var limiter = new ProviderRequestLimiter(Options.Create(new BlockCypherOptions
-        { RequestsPerHour = 2, RequestsPerSecond = 1 }), clock);
+        { RequestsPerHour = 1, RequestsPerSecond = 1 }), clock);
         await limiter.WaitForPermitAsync(default);
-        var waiting = limiter.WaitForPermitAsync(default);
-        limiter.ApplyCooldown(TimeSpan.FromSeconds(10));
         clock.Advance(TimeSpan.FromSeconds(2));
-        await Assert.ThrowsAsync<ProviderException>(() => waiting);
         await Assert.ThrowsAsync<ProviderException>(() => limiter.WaitForPermitAsync(default));
-        limiter.ApplyCooldown(TimeSpan.FromSeconds(1)); // A shorter response cannot shorten an existing pause.
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await Assert.ThrowsAsync<ProviderException>(() => limiter.WaitForPermitAsync(default));
-        clock.Advance(TimeSpan.FromSeconds(7));
-        await limiter.WaitForPermitAsync(default); // Rejections consumed no permits.
+        clock.Advance(TimeSpan.FromHours(1));
+        await limiter.WaitForPermitAsync(default);
     }
-
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Last_429_attempt_blocks_other_clients_until_retry_after_expires(bool dateHeader)
+    public async Task Throttling_is_not_retried_and_does_not_pause_other_captures(bool dateHeader)
     {
         var clock = new FakeTimeProvider();
-        var options = Options.Create(new BlockCypherOptions { MaxRetries = 0 });
+        var options = Options.Create(new BlockCypherOptions { MaxRetries = 2 });
         using var limiter = new ProviderRequestLimiter(options, clock);
         var circuit = new ProviderCircuitBreaker(options, clock, NullLogger<ProviderCircuitBreaker>.Instance);
         var handler = new ThrottledHandler(clock, dateHeader);
@@ -43,22 +36,21 @@ public sealed class ProviderCooldownTests
         BlockCypherClient CreateClient() => new(http, limiter, circuit, new Blockchain.Tests.Shared.TestBlockCypherMappings(), options, clock, NullLogger<BlockCypherClient>.Instance);
         var network = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
         await Assert.ThrowsAsync<ProviderException>(() => CreateClient().FetchSnapshotAsync(network, default));
-        await Assert.ThrowsAsync<ProviderException>(() => CreateClient().FetchSnapshotAsync(network, default));
         Assert.Equal(1, handler.Calls);
-        clock.Advance(TimeSpan.FromSeconds(30));
+        clock.Advance(TimeSpan.FromSeconds(1));
         var snapshot = await CreateClient().FetchSnapshotAsync(network, default);
         Assert.Equal("{\"name\":\"BTC.main\"}", snapshot.RawResponseJson);
         Assert.Equal(2, handler.Calls);
     }
 
     [Fact]
-    public async Task Caller_cancellation_takes_precedence_over_cooldown()
+    public async Task Caller_cancellation_does_not_consume_a_quota_slot()
     {
         using var limiter = new ProviderRequestLimiter(Options.Create(new BlockCypherOptions()), new FakeTimeProvider());
-        limiter.ApplyCooldown(TimeSpan.FromMinutes(1));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => limiter.WaitForPermitAsync(cancellation.Token));
+        await limiter.WaitForPermitAsync(default);
     }
 
     private sealed class ThrottledHandler(TimeProvider clock, bool dateHeader) : HttpMessageHandler

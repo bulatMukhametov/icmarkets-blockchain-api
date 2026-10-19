@@ -6,7 +6,7 @@ public sealed class BlockchainNetworkSnapshot
     public long Id { get; private set; }
     public Guid BlockchainNetworkId { get; private set; }
     public BlockchainNetwork BlockchainNetwork { get; private set; } = null!;
-    /// <summary>UTC time our first provider request started, not a block timestamp or database insert time.</summary>
+    /// <summary>UTC time Application started fetching data, before limiter waiting and retries; not database insert time.</summary>
     public DateTimeOffset CreatedAt { get; private set; }
     /// <summary>The complete original JSON response; this is a network summary, not a copy of the blockchain.</summary>
     public string RawResponseJson { get; private set; } = null!;

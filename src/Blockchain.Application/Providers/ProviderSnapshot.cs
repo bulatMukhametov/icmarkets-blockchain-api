@@ -1,3 +1,3 @@
 namespace Blockchain.Application.Providers;
 
-public sealed record ProviderSnapshot(string RawResponseJson, DateTimeOffset CreatedAt);
+public sealed record ProviderSnapshot(string RawResponseJson);

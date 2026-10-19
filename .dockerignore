@@ -6,3 +6,4 @@ tmp
 **/obj
 TestResults
 .env
+**/appsettings.Local.json

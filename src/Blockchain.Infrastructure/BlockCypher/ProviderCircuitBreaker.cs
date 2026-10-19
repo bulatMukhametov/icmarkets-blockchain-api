@@ -28,16 +28,7 @@ public sealed class ProviderCircuitBreaker
                 SamplingDuration = TimeSpan.FromSeconds(settings.CircuitBreakerSamplingSeconds),
                 BreakDuration = TimeSpan.FromSeconds(settings.CircuitBreakerBreakSeconds),
                 StateProvider = state,
-                ShouldHandle = args => new ValueTask<bool>(args.Outcome.Exception switch
-                {
-                    HttpRequestException or IOException or ProviderAttemptTimeoutException => true,
-                    // A cancelled probe provides no evidence of recovery. Release it by reopening;
-                    // cancellation during normal operation never trips the closed circuit.
-                    OperationCanceledException => state.CircuitState == CircuitState.HalfOpen,
-                    null => args.Outcome.Result.StatusCode == HttpStatusCode.RequestTimeout ||
-                        (int)args.Outcome.Result.StatusCode >= 500,
-                    _ => false
-                }),
+                ShouldHandle = args => new ValueTask<bool>(IsAvailabilityFailure(args.Outcome)),
                 OnOpened = args =>
                 {
                     Interlocked.Exchange(ref retryAtTicks, clock.GetUtcNow().Add(args.BreakDuration).UtcTicks);
@@ -56,6 +47,15 @@ public sealed class ProviderCircuitBreaker
                 }
             }).Build();
     }
+
+    private bool IsAvailabilityFailure(Outcome<ProviderAttemptResult> outcome) => outcome.Exception switch
+    {
+        HttpRequestException or IOException or ProviderAttemptTimeoutException => true,
+        // A cancelled recovery probe must reopen the circuit; ordinary cancellation is not a failure.
+        OperationCanceledException => state.CircuitState == CircuitState.HalfOpen,
+        null => outcome.Result.StatusCode == HttpStatusCode.RequestTimeout || (int)outcome.Result.StatusCode >= 500,
+        _ => false
+    };
 
     // Fast rejection before waiting for or consuming a local quota slot. ExecuteAsync below
     // makes the authoritative admission decision again after the gate, including concurrent probes.
@@ -79,6 +79,3 @@ public sealed class ProviderCircuitBreaker
         }
     }
 }
-
-internal readonly record struct ProviderAttemptResult(HttpStatusCode StatusCode, string? Payload, TimeSpan? RetryAfter);
-internal sealed class ProviderAttemptTimeoutException(Exception inner) : TimeoutException("Provider attempt timed out.", inner);

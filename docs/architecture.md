@@ -39,7 +39,7 @@ This deliberately keeps one capture path; the extra indexed lookup is small for 
 Application reports typed capture failures; API maps them to the existing public error strings.
 Provider contracts, network catalog contracts and validation errors live in their respective folders.
 History uses page/pageSize inputs and returns items, page, pageSize and hasNextPage.
-CreatedAt consistently means the first outbound request-start time in UTC, including across retries.
+CreatedAt is captured by CaptureSnapshotHandler before calling the provider client, using TimeProvider.
 
 The specialized repository exposes append, find and ordered history operations, without IQueryable
 or a generic CRUD abstraction. EF Core DbContext is the Unit of Work; each append calls SaveChangesAsync.
@@ -52,8 +52,8 @@ This preserves unknown fields, large numeric literals and original formatting. P
 require an object document and an existing catalog network. Referenced networks/currencies cannot be
 deleted. HTTP responses wrap the payload as a JSON object.
 
-CreatedAt is the UTC time immediately before the first HTTP attempt, after waiting for the outbound gate.
-It remains the first-attempt timestamp if a retry succeeds. Domain normalizes it to PostgreSQL's microsecond
+CreatedAt is the UTC time immediately before Application calls the provider client, before limiter waiting.
+It remains unchanged if a retry succeeds. Domain normalizes it to PostgreSQL's microsecond
 precision. Each successful capture creates a new row, even if the payload did not change.
 
 History uses offset pagination ordered by CreatedAt DESC, Id DESC. Id resolves equal timestamps.
@@ -66,13 +66,18 @@ deliberate simplicity trade-off and a possible future cursor-based alternative.
 
 ## 4. Provider resilience and concurrency
 
+BlockCypherClient resolves provider mapping, executes a resilient request and checks the response.
+ProviderResiliencePipeline configures Polly retries around the shared limiter and circuit breaker;
+the client no longer owns a retry loop or timestamps. ProviderSnapshot contains only raw JSON.
+The limiter tracks spacing and hourly quota. ScopedSnapshotCaptureService gives each capture its own scope.
+
 IHttpClientFactory manages connections. A singleton request gate spaces attempts and enforces a rolling
 hourly budget across all currencies and retries in this process. Defaults leave headroom below the
 documented free-tier ceiling. The gate does not wait for an hourly reset: exhausted budgets fail promptly.
 
 HTTP attempts have a timeout and the complete capture has a bounded provider time budget, including gate
-waiting and retry delays. Retries apply to network failures, timeouts, 408, 429 and 5xx. Short Retry-After
-values are respected; long delays fail the request. Non-successful, invalid, oversized or wrong-chain
+waiting and retry delays. Polly retries network/I/O failures, attempt timeouts, 408 and 5xx with a fixed
+500 ms delay. HTTP 429 and other 4xx are not retried; upstream Retry-After is not applied. Non-successful, invalid, oversized or wrong-chain
 responses never become snapshots. Redirects are disabled. User-provided source URLs are not accepted.
 
 A singleton Polly circuit breaker is shared across typed clients and all chains for the configured
@@ -82,7 +87,7 @@ body-read I/O errors, per-attempt timeouts, 408 and 5xx count as failures. HTTP 
 payload validation, local gate failures and normal caller cancellation do not trip it. A cancelled
 half-open probe reopens the circuit instead of claiming recovery or keeping the probe occupied.
 
-Execution order is: total budget -> retry loop -> fast circuit check -> request gate -> authoritative
+Execution order is: total budget -> Polly retry policy -> fast circuit check -> request gate -> authoritative
 circuit admission -> attempt timeout -> send/read/validate. Checking admission after the gate prevents
 waiting requests from sending after another attempt opens the circuit. Gate reservations made during
 an opening race may conservatively remain charged to the hourly budget. Already sent attempts can finish.
@@ -90,13 +95,9 @@ An open circuit is never retried locally. After the break, Polly admits one prob
 Transitions are logged. Polly types remain in Infrastructure; Application exposes a provider-circuit
 exception, mapped to HTTP 503 with Retry-After or a per-chain provider_circuit_open batch outcome.
 
-This is an availability circuit for the provider as a whole. Quota errors remain separate:
-ProviderRequestLimiter shares the HTTP 429 Retry-After cooldown across all clients, even if no retries
-remain. It supports delta and date headers, using one second if absent. A new cooldown can extend but
-not shorten the existing one. New calls and calls still waiting for spacing fail without consuming
-quota while the pause is active. Already admitted calls may finish. The original call retains bounded
-short retries; long pauses fail promptly. Circuit state, cooldown and quota are process-local; multiple
-replicas need an explicit ingestion/coordination design.
+This is an availability circuit for the provider as a whole. HTTP 429 becomes provider_unavailable,
+without a shared cooldown; the next capture can try again subject to local limits. Circuit state and
+quota are process-local; multiple replicas need an explicit ingestion/coordination design.
 
 Batch capture reads configured networks from the catalog and awaits all captures with Task.WhenAll,
 each owning a DI scope and DbContext. Provider failures
@@ -142,10 +143,22 @@ a collection leader. A dedicated worker host and shared provider quota coordinat
 when ingestion needs independent deployment; simply enabling this service on every replica would duplicate
 observations and multiply provider requests. Manual calls can overlap with a background cycle and share
 the local quota. There is no durable schedule, missed-run recovery, distributed lock or exactly-once claim.
-Batch concurrency is capped independently of catalog size. No queue, API Gateway, cache or Event Sourcing is
+Task.WhenAll starts all configured captures; a much larger catalog would need bounded concurrency. No queue, API Gateway, cache or Event Sourcing is
 introduced. Health readiness is unchanged and does not imply recent data; snapshot age must be monitored
 separately. One-second scheduling cannot overcome the configured hourly provider quota.
 
 This exercise has no authentication requirement and is bound to localhost in Compose. Before exposing
 capture publicly, add authentication/authorization and a shared quota policy. Retention, backup and
 archival policies depend on operational requirements and are outside this exercise.
+
+## Configuration ownership
+
+The API host loads shared appsettings, environment-specific settings, Development User Secrets,
+then environment/command-line overrides. Infrastructure owns typed provider and worker Options,
+validated at startup. General settings contain no connection string and allow no CORS origins by default.
+Development settings contain only a public demo database connection and localhost CORS origin.
+Personal credentials belong in User Secrets; deployed credentials belong in the platform secret store.
+Local Compose supplies its connection strings and CORS explicitly through environment variables.
+Its optional .env is not loaded by .NET. appsettings.Local.json is neither loaded nor shipped in the
+Docker build context. EF design-time commands require ConnectionStrings__Blockchain explicitly;
+the application --migrate mode uses normal host configuration.

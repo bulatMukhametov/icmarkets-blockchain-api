@@ -7,12 +7,12 @@ GET {{baseUrl}}/api/chains
 POST {{baseUrl}}/api/chains/btc/main/snapshots
 
 ### Read stored history without contacting the provider
-GET {{baseUrl}}/api/chains/btc/main/snapshots?pageSize=20
+GET {{baseUrl}}/api/chains/btc/main/snapshots?page=1&pageSize=20
 
 ### Read a stored observation (replace the ID with one returned by POST)
 GET {{baseUrl}}/api/chains/btc/main/snapshots/1
 
-### Capture all five sources (consumes at least five provider attempts)
+### Capture configured sources (initial catalog: five networks; each attempted request consumes quota)
 POST {{baseUrl}}/api/snapshot-collections
 
 ### Liveness

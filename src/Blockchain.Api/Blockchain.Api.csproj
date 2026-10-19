@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>icmarkets-blockchain-api-development</UserSecretsId>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Blockchain.Application/Blockchain.Application.csproj" />
     <ProjectReference Include="../Blockchain.Infrastructure/Blockchain.Infrastructure.csproj" />

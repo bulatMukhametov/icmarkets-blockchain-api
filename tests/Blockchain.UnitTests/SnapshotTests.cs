@@ -18,8 +18,8 @@ public sealed class SnapshotTests
     public async Task Capture_resolves_network_codes_without_caller_loading_an_entity()
     {
         var repository = new StubRepository();
-        var handler = new CaptureSnapshotHandler(new StubClient(new("{}", DateTimeOffset.UtcNow)),
-            repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator());
+        var handler = new CaptureSnapshotHandler(new StubClient(new("{}")),
+            repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator(), TimeProvider.System);
 
         var snapshot = await handler.HandleAsync(new("BTC", "MAIN"), default);
 
@@ -43,7 +43,7 @@ public sealed class SnapshotTests
             switch (scenario)
             {
                 case "capture":
-                    await new CaptureSnapshotHandler(client, repository, catalog, new CaptureSnapshotCommandValidator()).HandleAsync(new("eth", "test3"), default);
+                    await new CaptureSnapshotHandler(client, repository, catalog, new CaptureSnapshotCommandValidator(), TimeProvider.System).HandleAsync(new("eth", "test3"), default);
                     break;
                 case "get":
                     await new GetSnapshotHandler(repository, catalog, new GetSnapshotQueryValidator())
@@ -74,12 +74,13 @@ public sealed class SnapshotTests
     }
 
     [Fact]
-    public async Task Capture_preserves_complete_payload_and_provider_request_time()
+    public async Task Capture_records_start_time_before_provider_work_and_preserves_payload()
     {
         const string json = "{ \"name\":\"BTC.main\", \"unknown\": [12345678901234567890, {\"x\":true}] }";
         var time = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.FromHours(3)).AddTicks(19);
+        var clock = new TestClock { UtcNow = time };
         var repository = new StubRepository();
-        var handler = new CaptureSnapshotHandler(new StubClient(new(json, time)), repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator());
+        var handler = new CaptureSnapshotHandler(new StubClient(new(json), onFetch: () => clock.UtcNow = time.AddMinutes(1)), repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator(), clock);
         var first = await handler.HandleAsync(new("btc", "main"), default);
         await handler.HandleAsync(new("btc", "main"), default);
         Assert.Equal(json, first.RawResponseJson);
@@ -92,7 +93,7 @@ public sealed class SnapshotTests
     public async Task Provider_failure_does_not_write_a_snapshot()
     {
         var repository = new StubRepository();
-        var handler = new CaptureSnapshotHandler(new StubClient(error: new ProviderException("offline")), repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator());
+        var handler = new CaptureSnapshotHandler(new StubClient(error: new ProviderException("offline")), repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator(), TimeProvider.System);
         await Assert.ThrowsAsync<ProviderException>(() => handler.HandleAsync(new("btc", "main"), default));
         Assert.Empty(repository.Added);
     }
@@ -134,10 +135,19 @@ public sealed class SnapshotTests
             new CaptureAllSnapshotsHandler(new BrokenCapture(), new Blockchain.Tests.Shared.TestNetworkCatalog()).HandleAsync(new(), default));
     }
 
-    private sealed class StubClient(ProviderSnapshot? value = null, Exception? error = null) : IBlockchainDataClient
+    private sealed class TestClock : TimeProvider
     {
-        public Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork network, CancellationToken cancellationToken) =>
-            error is null ? Task.FromResult(value!) : Task.FromException<ProviderSnapshot>(error);
+        public DateTimeOffset UtcNow { get; set; }
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
+    private sealed class StubClient(ProviderSnapshot? value = null, Exception? error = null, Action? onFetch = null) : IBlockchainDataClient
+    {
+        public Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork network, CancellationToken cancellationToken)
+        {
+            onFetch?.Invoke();
+            return error is null ? Task.FromResult(value!) : Task.FromException<ProviderSnapshot>(error);
+        }
     }
 
     private sealed class StubCapture : ISnapshotCaptureService

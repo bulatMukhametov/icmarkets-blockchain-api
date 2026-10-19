@@ -8,7 +8,7 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
 - Release solution build: zero warnings and errors.
 - Latest Release tests: 87 passed, zero failed, zero skipped.
   - Unit: 23, including request validators, application network resolution, catalog invariants and concurrent collection with results in catalog order.
-  - Integration: 47, including populated-database catalog migration, catalog constraints, shared provider cooldown, background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
+  - Integration: 47, including populated-database catalog migration, catalog constraints, provider throttling policy, background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
     consistency, complete payload preservation, currency/network isolation and page-number pagination.
   - Functional: 17, including dynamically added currencies, catalog readiness, validation errors with different Accept headers, automatic capture without POST, HTTP-to-PostgreSQL capture/history,
     concurrent partial collection and the circuit-open HTTP/batch contracts.
@@ -178,3 +178,44 @@ See README for reproducible commands.
   responses for different Accept headers. Results: TestResults/api-cleanup/ (ignored).
 - Application/domain logic did not change; unit/integration results above are from their preceding run.
   The running Compose image was not rebuilt for this refactoring.
+
+## Infrastructure readability (2026-10-19)
+
+- Separated overall timeout/error translation, retry orchestration, retry waiting and Retry-After
+  handling in BlockCypherClient. Kept request-start timestamp capture inside circuit admission.
+- Split request spacing and hourly quota reservation in ProviderRequestLimiter without changing
+  lock ownership; extracted availability-failure classification from Polly configuration.
+- Moved scoped capture into Collection and gave attempt result/timeout types their own files.
+- Complete Release suite passed: 87 tests (23 unit, 47 integration, 17 functional), zero failures
+  or skips. Includes shared cooldown, retry/quota interaction, circuit recovery/cancellation,
+  provider timeouts, worker lifecycle, HTTP contracts and PostgreSQL Testcontainers.
+- Results: TestResults/infrastructure-cleanup/ (ignored). Compose image was not rebuilt.
+
+## Simplified provider client and capture timestamp (2026-10-19)
+
+- CreatedAt is now captured in CaptureSnapshotHandler using TimeProvider immediately before the
+  provider call, after validation/catalog lookup and before limiter waiting or retries. ProviderSnapshot
+  carries only raw JSON. A unit test advances the clock during fetching and verifies the earlier time.
+- Replaced the manual retry loop with Polly RetryStrategyOptions in ProviderResiliencePipeline.
+  Network/I/O failures, attempt timeouts, HTTP 408 and 5xx are retried with a fixed 500 ms delay.
+  Every attempt still traverses the shared rate/quota limiter and provider circuit breaker.
+- HTTP 429 is not retried, does not trip the circuit and does not create a shared cooldown.
+  Upstream Retry-After is intentionally ignored. Throttling tests replace the previous cooldown tests
+  and prove a subsequent capture can proceed under normal local limits.
+- Complete Release suite: 87 passed (23 unit, 47 integration, 17 functional), zero failed/skipped,
+  including PostgreSQL Testcontainers. Results: TestResults/simplified-provider/ (ignored).
+- Earlier sections describe historical timestamp and cooldown behavior. No schema migration was needed;
+  stored timestamps were not rewritten. The running Compose image was not rebuilt.
+
+## Configuration separation (2026-10-19)
+
+- Shared appsettings no longer contains a connection string or localhost CORS origin. Development
+  settings supply the documented public demo connection. UserSecretsId enables normal Development
+  User Secrets loading without adding a custom configuration provider or creating personal secrets.
+- Local Compose explicitly supplies CORS and the database connection to both API and migration jobs.
+  docker compose config --quiet passed; resolved configuration contains both connection overrides.
+  Configuration output and credentials were not printed.
+- All 17 functional tests passed, zero failed/skipped, including development CORS, readiness,
+  PostgreSQL Testcontainers and worker startup. Results: TestResults/configuration/ (ignored).
+- README documents local launch, User Secrets, precedence, environment overrides and EF design-time
+  configuration. Compose containers were not restarted or rebuilt; database credentials were not changed.
