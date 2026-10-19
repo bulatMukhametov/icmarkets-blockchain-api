@@ -6,5 +6,8 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
   </ItemGroup>
-  <ItemGroup><Using Include="Xunit" /></ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Compile Include="../Shared/TestNetworkCatalog.cs" Link="Shared/TestNetworkCatalog.cs" />
+  </ItemGroup>
 </Project>

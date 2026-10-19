@@ -40,8 +40,8 @@ public sealed class ProviderCooldownTests
         var circuit = new ProviderCircuitBreaker(options, clock, NullLogger<ProviderCircuitBreaker>.Instance);
         var handler = new ThrottledHandler(clock, dateHeader);
         using var http = new HttpClient(handler) { BaseAddress = new("https://example.invalid/") };
-        BlockCypherClient CreateClient() => new(http, limiter, circuit, options, clock, NullLogger<BlockCypherClient>.Instance);
-        var network = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
+        BlockCypherClient CreateClient() => new(http, limiter, circuit, new Blockchain.Tests.Shared.TestBlockCypherMappings(), options, clock, NullLogger<BlockCypherClient>.Instance);
+        var network = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
         await Assert.ThrowsAsync<ProviderException>(() => CreateClient().FetchSnapshotAsync(network, default));
         await Assert.ThrowsAsync<ProviderException>(() => CreateClient().FetchSnapshotAsync(network, default));
         Assert.Equal(1, handler.Calls);

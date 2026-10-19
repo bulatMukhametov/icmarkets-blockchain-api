@@ -1,5 +1,7 @@
 using Blockchain.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -13,7 +15,7 @@ public sealed class PostgresFixture : Xunit.IAsyncLifetime
 
     public Task InitializeAsync() => Task.CompletedTask;
 
-    public async Task StartAsync()
+    public async Task StartAsync(string? targetMigration = null)
     {
         if (ConnectionString is not null) return;
         var connection = Environment.GetEnvironmentVariable("TEST_POSTGRES_CONNECTION");
@@ -32,7 +34,7 @@ public sealed class PostgresFixture : Xunit.IAsyncLifetime
         command.CommandText = $"CREATE SCHEMA \"{schema}\"";
         await command.ExecuteNonQueryAsync();
         await using var db = CreateContext();
-        await db.Database.MigrateAsync();
+        await db.GetService<IMigrator>().MigrateAsync(targetMigration);
     }
 
     public BlockchainDbContext CreateContext() => new(new DbContextOptionsBuilder<BlockchainDbContext>()

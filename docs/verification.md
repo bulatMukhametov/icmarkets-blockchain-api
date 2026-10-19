@@ -6,16 +6,16 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
 
 - .NET SDK 10.0.402; dependencies restored with NuGet vulnerability warnings treated as errors.
 - Release solution build: zero warnings and errors.
-- Latest Release tests: 67 passed, zero failed, zero skipped.
-  - Unit: 7.
-  - Integration: 45, including shared provider cooldown, background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
+- Latest Release tests: 78 passed, zero failed, zero skipped.
+  - Unit: 14, including catalog invariants and bounded collection for a larger catalog.
+  - Integration: 47, including populated-database catalog migration, catalog constraints, shared provider cooldown, background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
     consistency, complete payload preservation, currency/network isolation and keyset pagination.
-  - Functional: 15, including validation errors with different Accept headers, automatic capture without POST, HTTP-to-PostgreSQL capture/history,
+  - Functional: 17, including dynamically added currencies, catalog readiness, validation errors with different Accept headers, automatic capture without POST, HTTP-to-PostgreSQL capture/history,
     concurrent partial collection and the circuit-open HTTP/batch contracts.
 - The original 28-test suite used a temporary local PostgreSQL 17.11 instance through TEST_POSTGRES_CONNECTION.
   Each test fixture created and removed its own schema.
 - The latest complete Release suite ran with RUN_DATABASE_TESTS=true and TEST_POSTGRES_CONNECTION
-  unset: 67 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
+  unset: 78 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
   containers and cleaned them up successfully. The test host ran on Windows.
 - Release publish succeeded with UseAppHost=false, as used by the Docker build.
 - Published assembly applied migrations to a fresh database through --migrate.
@@ -95,6 +95,27 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
   and trace ID with status 400, and a live BTC capture returned 201 (snapshot 14) with a working Location.
   Evidence is under TestResults/final-review/docker-smoke.json. Automatic collection remains disabled.
 - GitHub Actions settings and workflow files were left unchanged at the user's request.
+
+## Extensible catalog (2026-10-19)
+
+- Cryptocurrency and BlockchainNetwork are persisted entities; snapshots reference networks by foreign
+  key. NetworkKind is an enum, while public and provider-specific network codes remain distinct.
+- Upgrade tests start from InitialSnapshots with five existing observations and verify the new foreign
+  keys, unchanged IDs, timestamps and exact raw payloads after IntroduceNetworkCatalog.
+- Catalog tests verify case-normalized lookup, unique codes, configured/unmapped networks, and deletion
+  restrictions protecting history. Unit tests cover invalid codes/identities/kinds and a 20-network batch
+  with no more than four concurrent captures.
+- A real PostgreSQL HTTP test adds doge/production with provider mapping doge/main, captures it through
+  the existing adapter, includes it in a six-source batch, and reads its history. Removing the mapping
+  prevents new provider requests without removing history. No application/schema changes are needed.
+- Readiness returns 503 before the catalog migration and 200 afterwards; liveness stays independent.
+- All 78 Release tests passed, zero failed/skipped. TRX reports are under TestResults/network-catalog-final/.
+- Rebuilt the Linux image and upgraded the existing Docker database after saving pre-upgrade.sql.
+  A checksum over all 14 old snapshot IDs, public network codes, request times and raw payloads matched
+  before/after migration. The old pagination cursor still worked; readiness returned 200 and the five
+  initial catalog entries remained available. A live BTC capture returned 201 (snapshot 15), and its
+  Location returned the saved record. Migration exited 0; the API and PostgreSQL remain running.
+  Backup, checksum, cursor and smoke-check results are in TestResults/network-catalog-final/ (ignored).
 
 ## Not verified
 

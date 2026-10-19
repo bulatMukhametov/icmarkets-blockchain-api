@@ -9,7 +9,7 @@ namespace Blockchain.IntegrationTests;
 
 public sealed class ProviderClientTests
 {
-    private static readonly BlockchainNetwork Btc = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
+    private static readonly BlockchainNetwork Btc = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
 
     [Theory]
     [InlineData("not-json")]
@@ -82,7 +82,7 @@ public sealed class ProviderClientTests
         using var http = new HttpClient(new SlowHandler()) { BaseAddress = new("https://example.invalid/") };
         using var gate = new ProviderRequestLimiter(settings, TimeProvider.System);
         var circuit = new ProviderCircuitBreaker(settings, TimeProvider.System, NullLogger<ProviderCircuitBreaker>.Instance);
-        var client = new BlockCypherClient(http, gate, circuit, settings, TimeProvider.System, NullLogger<BlockCypherClient>.Instance);
+        var client = new BlockCypherClient(http, gate, circuit, new Blockchain.Tests.Shared.TestBlockCypherMappings(), settings, TimeProvider.System, NullLogger<BlockCypherClient>.Instance);
         var error = await Assert.ThrowsAsync<ProviderException>(() => client.FetchSnapshotAsync(Btc, default));
         Assert.True(error.TimedOut);
     }
@@ -123,7 +123,7 @@ public sealed class ProviderClientTests
             http = new(new ResponseHandler(respond)) { BaseAddress = new("https://example.invalid/v1/") };
             gate = new(settings, TimeProvider.System);
             var circuit = new ProviderCircuitBreaker(settings, TimeProvider.System, NullLogger<ProviderCircuitBreaker>.Instance);
-            Client = new(http, gate, circuit, settings, TimeProvider.System, NullLogger<BlockCypherClient>.Instance);
+            Client = new(http, gate, circuit, new Blockchain.Tests.Shared.TestBlockCypherMappings(), settings, TimeProvider.System, NullLogger<BlockCypherClient>.Instance);
         }
         public void Dispose() { http.Dispose(); gate.Dispose(); }
     }

@@ -1,24 +1,27 @@
 namespace Blockchain.Domain;
 
-/// <summary>A cryptocurrency and its network, such as Bitcoin mainnet (btc/main).</summary>
-public sealed record BlockchainNetwork
+/// <summary>A specific network belonging to a currency, with an identity independent of its provider.</summary>
+public sealed class BlockchainNetwork
 {
-    /// <summary>Provider currency code: btc, eth, dash or ltc.</summary>
-    public string Coin { get; }
-    /// <summary>Network name: main for mainnet, or test3 for the supported Bitcoin testnet.</summary>
-    public string Network { get; }
+    public Guid Id { get; private set; }
+    public Guid CryptocurrencyId { get; private set; }
+    public Cryptocurrency Cryptocurrency { get; private set; } = null!;
+    public string Code { get; private set; } = null!;
+    public NetworkKind Kind { get; private set; }
 
-    private BlockchainNetwork(string coin, string network) => (Coin, Network) = (coin, network);
+    private BlockchainNetwork() { }
 
-    public static IReadOnlyList<BlockchainNetwork> SupportedNetworks { get; } = Array.AsReadOnly(new[]
+    public BlockchainNetwork(Guid id, Cryptocurrency cryptocurrency, string code, NetworkKind kind)
     {
-        new BlockchainNetwork("eth", "main"), new BlockchainNetwork("dash", "main"),
-        new BlockchainNetwork("btc", "main"), new BlockchainNetwork("btc", "test3"), new BlockchainNetwork("ltc", "main")
-    });
+        if (id == Guid.Empty) throw new ArgumentException("Network ID must not be empty.", nameof(id));
+        ArgumentNullException.ThrowIfNull(cryptocurrency);
+        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+        Id = id;
+        CryptocurrencyId = cryptocurrency.Id;
+        Cryptocurrency = cryptocurrency;
+        Code = CatalogCode.Normalize(code);
+        Kind = kind;
+    }
 
-    public static BlockchainNetwork? FindSupportedNetwork(string coin, string network) => SupportedNetworks.FirstOrDefault(x =>
-        string.Equals(x.Coin, coin, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(x.Network, network, StringComparison.OrdinalIgnoreCase));
-
-    public override string ToString() => $"{Coin}/{Network}";
+    public override string ToString() => $"{Cryptocurrency.Code}/{Code}";
 }

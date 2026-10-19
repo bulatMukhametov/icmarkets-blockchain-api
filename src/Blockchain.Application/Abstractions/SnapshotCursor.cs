@@ -7,7 +7,7 @@ public sealed record SnapshotCursor(string Coin, string Network, DateTimeOffset 
 {
     public static string Encode(BlockchainNetworkSnapshot snapshot) => Convert.ToBase64String(
         JsonSerializer.SerializeToUtf8Bytes(new SnapshotCursor(
-            snapshot.Coin, snapshot.Network, snapshot.CreatedAt, snapshot.Id)))
+            snapshot.BlockchainNetwork.Cryptocurrency.Code, snapshot.BlockchainNetwork.Code, snapshot.RequestedAtUtc, snapshot.Id)))
         .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     public static SnapshotCursor? Decode(string? value, BlockchainNetwork chain)
@@ -19,7 +19,7 @@ public sealed record SnapshotCursor(string Coin, string Network, DateTimeOffset 
             var padded = value.Replace('-', '+').Replace('_', '/');
             padded = padded.PadRight((padded.Length + 3) / 4 * 4, '=');
             var cursor = JsonSerializer.Deserialize<SnapshotCursor>(Convert.FromBase64String(padded));
-            if (cursor is null || cursor.Coin != chain.Coin || cursor.Network != chain.Network ||
+            if (cursor is null || cursor.Coin != chain.Cryptocurrency.Code || cursor.Network != chain.Code ||
                 cursor.Id <= 0 || cursor.CreatedAt == default || cursor.CreatedAt.Offset != TimeSpan.Zero)
                 throw new FormatException();
             return cursor;

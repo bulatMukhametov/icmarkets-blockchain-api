@@ -48,7 +48,7 @@ public sealed class CircuitBreakerTests
         var otherClient = h.CreateClient();
         for (var i = 0; i < 10; i++)
             await Assert.ThrowsAsync<ProviderCircuitOpenException>(() =>
-                otherClient.FetchSnapshotAsync(BlockchainNetwork.FindSupportedNetwork("eth", "main")!, default));
+                otherClient.FetchSnapshotAsync(Blockchain.Tests.Shared.TestNetworkCatalog.Find("eth", "main")!, default));
         Assert.Equal(2, h.Calls);
         h.Clock.Advance(TimeSpan.FromSeconds(30));
         h.Respond = (_, _) => Task.FromResult(Response(200));
@@ -275,7 +275,7 @@ public sealed class CircuitBreakerTests
 
     private sealed class Harness : IDisposable
     {
-        public static readonly BlockchainNetwork Btc = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
+        public static readonly BlockchainNetwork Btc = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
         public FakeTimeProvider Clock { get; } = new();
         public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> Respond { get; set; } =
             (_, _) => Task.FromResult(Response(503));
@@ -295,7 +295,7 @@ public sealed class CircuitBreakerTests
             Client = CreateClient();
         }
 
-        public BlockCypherClient CreateClient() => new(http, gate, circuit, options, Clock, NullLogger<BlockCypherClient>.Instance);
+        public BlockCypherClient CreateClient() => new(http, gate, circuit, new Blockchain.Tests.Shared.TestBlockCypherMappings(), options, Clock, NullLogger<BlockCypherClient>.Instance);
         public Task<ProviderSnapshot> Fetch() => Client.FetchSnapshotAsync(Btc, default);
         public async Task Open()
         {

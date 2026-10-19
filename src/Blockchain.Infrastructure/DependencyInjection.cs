@@ -20,6 +20,8 @@ public static class DependencyInjection
             options.UseNpgsql(connection);
         });
         services.AddScoped<IBlockchainSnapshotRepository, BlockchainSnapshotRepository>();
+        services.AddScoped<IBlockchainNetworkCatalog, BlockchainNetworkCatalog>();
+        services.AddScoped<IBlockCypherNetworkMappings, BlockCypherNetworkMappings>();
         services.AddSingleton<ISnapshotCaptureService, ScopedSnapshotCaptureService>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddOptions<SnapshotCollectionOptions>().Bind(configuration.GetSection(SnapshotCollectionOptions.Section))

@@ -34,13 +34,13 @@ public sealed class ApiTests
         await using var factory = new ApiFactory(collectionEnabled: true);
         using var http = factory.CreateClient();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        foreach (var chain in Blockchain.Domain.BlockchainNetwork.SupportedNetworks)
+        foreach (var chain in Blockchain.Tests.Shared.TestNetworkCatalog.Networks)
         {
             SnapshotHistoryResponse? history;
             do
             {
                 history = await http.GetFromJsonAsync<SnapshotHistoryResponse>(
-                    $"/api/chains/{chain.Coin}/{chain.Network}/snapshots", deadline.Token);
+                    $"/api/chains/{chain.Cryptocurrency.Code}/{chain.Code}/snapshots", deadline.Token);
                 if (history!.Items.Count == 0) await Task.Delay(25, deadline.Token);
             } while (history.Items.Count == 0);
             Assert.Single(history.Items);

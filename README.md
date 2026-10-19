@@ -10,8 +10,11 @@ is a separate Bitcoin test network. A **snapshot** is one saved response from th
 network, together with the time our request started. It is a network summary, not a copy of all blocks.
 Two requests produce two observations even when the returned data is identical.
 
-The domain expresses these concepts as `BlockchainNetwork` and `BlockchainNetworkSnapshot`.
-`CreatedAt` records request-start time in UTC; `Payload` preserves the complete original JSON response.
+The catalog contains `Cryptocurrency` entities and their `BlockchainNetwork` entities. `NetworkKind`
+classifies a network as Mainnet or Testnet; its code identifies the specific network. A
+`BlockchainNetworkSnapshot` references the network by ID. `RequestedAtUtc` records request-start time
+and `RawResponseJson` preserves the original JSON. The HTTP names remain `createdAt` and `payload`.
+See [catalog model and adding a currency](docs/catalog.md) for the relationships and an SQL example.
 
 ## Quick start: Linux containers
 
@@ -72,15 +75,17 @@ The development profile enables Swagger. Outside Development enable it explicitl
 
 | Method | Route | Result |
 | --- | --- | --- |
-| GET | `/api/chains` | Five supported currency/network pairs |
+| GET | `/api/chains` | Currency/network pairs from the database catalog |
 | POST | `/api/chains/{coin}/{network}/snapshots` | Capture and persist; 201 with Location |
 | GET | `/api/chains/{coin}/{network}/snapshots/{id}` | Stored snapshot or 404 |
 | GET | `/api/chains/{coin}/{network}/snapshots?pageSize=20&cursor=...` | Ordered history page |
-| POST | `/api/snapshot-collections` | Completed report for all five sources; 200, possibly partial success |
+| POST | `/api/snapshot-collections` | Completed report for all configured sources; 200, possibly partial success |
 | GET | `/health/live` | Process liveness |
 | GET | `/health/ready` | Database/schema readiness |
 
-Supported pairs: `eth/main`, `dash/main`, `btc/main`, `btc/test3`, `ltc/main`.
+Initially configured pairs: `eth/main`, `dash/main`, `btc/main`, `btc/test3`, `ltc/main`.
+The catalog is extensible without changing handlers or the database schema. A provider mapping is
+required to collect a catalog network; history remains readable after its mapping is removed.
 The visible LTC URL in the brief is used; its PDF hyperlink incorrectly points to BTC.
 "All data" means the full summaries returned by the five listed URLs, rather than downloading blocks
 or transactions linked from those documents. GET history never triggers collection.
@@ -115,7 +120,7 @@ ASP.NET configuration supports environment variables with `__` separators.
 | `BlockCypher:CircuitBreakerMinimumThroughput` | 5 | Minimum attempts in the sampling window; range 2..100 |
 | `BlockCypher:CircuitBreakerSamplingSeconds` | 30 | Sampling window; range 1..300 seconds |
 | `BlockCypher:CircuitBreakerBreakSeconds` | 30 | Open duration before a recovery probe; range 1..300 seconds |
-| `SnapshotCollection:Enabled` | false | Enable automatic collection of all five chains in this API process |
+| `SnapshotCollection:Enabled` | false | Enable automatic collection of configured catalog networks in this API process |
 | `SnapshotCollection:IntervalSeconds` | 600 | Delay after a cycle completes; range 1..86400 seconds |
 | `SnapshotCollection:InitialDelaySeconds` | 10 | Delay before the first cycle; range 0..3600 seconds |
 | `SnapshotCollection:CycleTimeoutSeconds` | 120 | Cooperative timeout for the entire cycle, including persistence; range 1..600 seconds |
@@ -136,7 +141,7 @@ reopens it, because cancellation does not establish that the provider recovered.
 
 New calls fail promptly while the circuit is open; retries stop and requests waiting at the outbound
 gate recheck circuit admission before sending. Calls already sent may finish. The circuit is shared
-by all five networks in one process and resets on restart. GET history and database readiness do not
+by all configured networks in one process and resets on restart. GET history and database readiness do not
 depend on the circuit. HTTP 429 applies a shared Retry-After cooldown to the provider limiter, including
 on the final attempt. Both delta-seconds and HTTP-date headers are supported; a missing header uses
 one second. New or still-waiting calls fail promptly during this pause without consuming quota, while
@@ -148,6 +153,7 @@ contract and do not trip the availability circuit.
 ## Background collection
 
 An optional BackgroundService invokes the same CaptureAllSnapshots command as the collection endpoint.
+Each cycle reads configured networks from the database; at most four captures run concurrently per batch.
 Enable it locally with `SnapshotCollection__Enabled=true`. For Compose, set
 `SNAPSHOT_COLLECTION_ENABLED=true` in `.env` and run `docker compose up -d`.
 `SNAPSHOT_COLLECTION_INTERVAL_SECONDS` overrides the Compose interval (default 600).
@@ -162,7 +168,7 @@ worker continues after the configured delay. Migration-only execution (`--migrat
 
 Manual captures can run concurrently with automatic capture; both share the same in-process outbound
 quota and circuit breaker. The worker does not consume the HTTP endpoint's concurrency permits. At
-600 seconds, successful automatic cycles consume about 30 provider requests/hour before retries;
+600 seconds with the five initial networks, successful automatic cycles consume about 30 provider requests/hour before retries;
 manual calls share the remaining budget. Configuring one second does not override provider limits or
 guarantee one-second freshness. Every successful collection appends a snapshot, including unchanged data.
 
@@ -210,11 +216,11 @@ Start reading the code in this order:
 
 | Location | Responsibility |
 | --- | --- |
-| `src/Blockchain.Domain` | Supported networks and saved network snapshots |
+| `src/Blockchain.Domain` | Currency and network entities, network kind, saved network snapshots |
 | `src/Blockchain.Application/Snapshots` | Capture one/all networks and read stored history; command/query/result files sit beside their handler |
 | `src/Blockchain.Application/Abstractions` | Named contracts for provider access, persistence and scoped capture |
 | `src/Blockchain.Infrastructure/BlockCypher` | HTTP integration, request limiting, shared cooldown and circuit breaker |
-| `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, migrations and repository |
+| `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, initial catalog, migrations and repositories |
 | `src/Blockchain.Infrastructure/Collection` | Optional periodic capture using the existing application command |
 | `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
 

@@ -6,11 +6,16 @@ Domain has no framework dependencies. Application references Domain only and own
 Infrastructure implements persistence and the provider client. API owns HTTP contracts and the composition root.
 There is one deployment unit and one database. Application folders group code by use case.
 
-The domain is deliberately small: BlockchainNetwork identifies a supported currency/network pair;
-BlockchainNetworkSnapshot is a saved provider response about that network at request-start time.
-Snapshot means an observation, not a complete blockchain download. CreatedAt and Payload retain their
-existing API/storage names and are documented on the domain type. Public application contracts and
-use-case commands, queries and results have their own named files.
+The catalog has two entities with stable GUID identities: Cryptocurrency and BlockchainNetwork.
+A currency code is unique; a network code is unique within its currency. NetworkKind is an enum for
+Mainnet/Testnet classification, not an identifier for a particular network. BlockchainNetworkSnapshot
+is a separate entity with a database-generated ID and a required network foreign key. No currency enum
+or static runtime list limits expansion. Snapshot means an observation, not a complete blockchain
+download. Domain properties RequestedAtUtc and RawResponseJson map to the existing CreatedAt/Payload
+database columns and HTTP fields. Public application contracts and use-case messages have named files.
+Provider-specific addresses live in BlockCypherNetworkMappings, not in Domain. Catalog records without
+a mapping remain readable but are excluded from automatic/batch collection; individual capture fails
+as provider_unavailable until a mapping is supplied. See [catalog details](catalog.md).
 No artificial base entities, aggregates or per-currency service inheritance are needed.
 
 ## 2. CQRS and Repository
@@ -26,7 +31,8 @@ There is no additional IUnitOfWork wrapper because no scenario coordinates multi
 
 Store the full successful response as PostgreSQL text, with metadata in separate columns.
 This preserves unknown fields, large numeric literals and original formatting. PostgreSQL constraints
-require an object document and a supported currency/network. HTTP responses wrap this data as a JSON object.
+require an object document and an existing catalog network. Referenced networks/currencies cannot be
+deleted. HTTP responses wrap the payload as a JSON object.
 
 CreatedAt is the UTC time immediately before the first HTTP attempt, after waiting for the outbound gate.
 It remains the first-attempt timestamp if a retry succeeds. Domain normalizes it to PostgreSQL's microsecond
@@ -34,7 +40,7 @@ precision. Each successful capture creates a new row, even if the payload did no
 
 History uses keyset pagination ordered by CreatedAt DESC, Id DESC. Id is an identity bigint, resolving equal
 timestamps. The opaque base64url cursor contains both keys and the chain; it is validated before querying.
-The index matches the chain filter and ordering. A page fetches at most pageSize + 1 observations, without
+The index begins with BlockchainNetworkId and matches the time/ID ordering. A page fetches at most pageSize + 1 observations, without
 tracking or an unbounded count query. A cursor is not signed and is not an authorization token.
 Pagination is a live traversal, not a transactionally frozen export; newly arriving observations may be
 seen on later pages if their request timestamps fall after the cursor in traversal order.
@@ -73,7 +79,8 @@ quota while the pause is active. Already admitted calls may finish. The original
 short retries; long pauses fail promptly. Circuit state, cooldown and quota are process-local; multiple
 replicas need an explicit ingestion/coordination design.
 
-Batch capture starts five independent operations, each owning a DI scope and DbContext. Provider failures
+Batch capture reads configured networks from the catalog and runs at most four operations concurrently,
+each owning a DI scope and DbContext. Provider failures
 are reported per chain, preserving successful observations. Request cancellation propagates. A persistence
 failure causes HTTP 500; already committed snapshots remain. Neither HTTP requests nor the whole batch
 hold a database transaction. POST is intentionally non-idempotent; after an ambiguous network/DB failure,
@@ -111,7 +118,7 @@ a collection leader. A dedicated worker host and shared provider quota coordinat
 when ingestion needs independent deployment; simply enabling this service on every replica would duplicate
 observations and multiply provider requests. Manual calls can overlap with a background cycle and share
 the local quota. There is no durable schedule, missed-run recovery, distributed lock or exactly-once claim.
-Batch concurrency is fixed by the five-entry catalog. No queue, API Gateway, cache or Event Sourcing is
+Batch concurrency is capped independently of catalog size. No queue, API Gateway, cache or Event Sourcing is
 introduced. Health readiness is unchanged and does not imply recent data; snapshot age must be monitored
 separately. One-second scheduling cannot overcome the configured hourly provider quota.
 

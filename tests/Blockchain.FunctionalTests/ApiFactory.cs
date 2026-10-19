@@ -35,6 +35,10 @@ public sealed class ApiFactory(string? databaseConnection = null, bool collectio
             {
                 services.RemoveAll<IBlockchainSnapshotRepository>();
                 services.AddSingleton<IBlockchainSnapshotRepository>(Store);
+                services.RemoveAll<IBlockchainNetworkCatalog>();
+                services.AddSingleton<IBlockchainNetworkCatalog>(new Blockchain.Tests.Shared.TestNetworkCatalog());
+                services.RemoveAll<Blockchain.Infrastructure.BlockCypher.IBlockCypherNetworkMappings>();
+                services.AddSingleton<Blockchain.Infrastructure.BlockCypher.IBlockCypherNetworkMappings>(new Blockchain.Tests.Shared.TestBlockCypherMappings());
             }
             services.AddHttpClient<IBlockchainDataClient, Blockchain.Infrastructure.BlockCypher.BlockCypherClient>()
                 .ConfigurePrimaryHttpMessageHandler(() => new ProviderHandler(this));
@@ -73,12 +77,12 @@ public sealed class MemorySnapshotRepository : IBlockchainSnapshotRepository
     }
 
     public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork chain, long id, CancellationToken token) =>
-        Task.FromResult(snapshots.TryGetValue(id, out var value) && value.Coin == chain.Coin && value.Network == chain.Network
+        Task.FromResult(snapshots.TryGetValue(id, out var value) && value.BlockchainNetworkId == chain.Id
             ? value : null);
 
     public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork chain, SnapshotCursor? before, int take,
         CancellationToken token) => Task.FromResult<IReadOnlyList<BlockchainNetworkSnapshot>>(snapshots.Values
-        .Where(x => x.Coin == chain.Coin && x.Network == chain.Network)
-        .Where(x => before is null || x.CreatedAt < before.CreatedAt || (x.CreatedAt == before.CreatedAt && x.Id < before.Id))
-        .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).Take(take).ToArray());
+        .Where(x => x.BlockchainNetworkId == chain.Id)
+        .Where(x => before is null || x.RequestedAtUtc < before.CreatedAt || (x.RequestedAtUtc == before.CreatedAt && x.Id < before.Id))
+        .OrderByDescending(x => x.RequestedAtUtc).ThenByDescending(x => x.Id).Take(take).ToArray());
 }

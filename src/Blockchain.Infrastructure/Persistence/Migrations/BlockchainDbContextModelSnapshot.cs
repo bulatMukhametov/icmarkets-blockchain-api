@@ -22,7 +22,73 @@ namespace Blockchain.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Blockchain.Domain.BlockchainSnapshot", b =>
+            modelBuilder.Entity("Blockchain.Domain.BlockchainNetwork", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("CryptocurrencyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CryptocurrencyId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("BlockchainNetworks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlockchainNetworks_Code", "\"Code\" ~ '^[a-z0-9-]{1,32}$'");
+
+                            t.HasCheckConstraint("CK_BlockchainNetworks_Kind", "\"Kind\" IN (1, 2)");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("20000000-0000-0000-0000-000000000001"),
+                            Code = "main",
+                            CryptocurrencyId = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-0000-0000-0000-000000000002"),
+                            Code = "test3",
+                            CryptocurrencyId = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Kind = 2
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-0000-0000-0000-000000000003"),
+                            Code = "main",
+                            CryptocurrencyId = new Guid("10000000-0000-0000-0000-000000000002"),
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-0000-0000-0000-000000000004"),
+                            Code = "main",
+                            CryptocurrencyId = new Guid("10000000-0000-0000-0000-000000000003"),
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("20000000-0000-0000-0000-000000000005"),
+                            Code = "main",
+                            CryptocurrencyId = new Guid("10000000-0000-0000-0000-000000000004"),
+                            Kind = 1
+                        });
+                });
+
+            modelBuilder.Entity("Blockchain.Domain.BlockchainNetworkSnapshot", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -30,34 +96,170 @@ namespace Blockchain.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<string>("Coin")
-                        .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
+                    b.Property<Guid>("BlockchainNetworkId")
+                        .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Network")
+                    b.Property<string>("RawResponseJson")
                         .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
+                        .HasColumnType("text")
+                        .HasColumnName("Payload");
 
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("CreatedAt");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Coin", "Network", "CreatedAt", "Id")
-                        .IsDescending(false, false, true, true);
+                    b.HasIndex("BlockchainNetworkId", "RequestedAtUtc", "Id")
+                        .IsDescending(false, true, true);
 
                     b.ToTable("Snapshots", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Snapshots_Chain", "(\"Coin\" IN ('btc','eth','dash','ltc') AND \"Network\" = 'main') OR (\"Coin\" = 'btc' AND \"Network\" = 'test3')");
-
                             t.HasCheckConstraint("CK_Snapshots_Payload", "json_typeof(\"Payload\"::json) = 'object'");
                         });
+                });
+
+            modelBuilder.Entity("Blockchain.Domain.Cryptocurrency", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Cryptocurrencies", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Cryptocurrencies_Code", "\"Code\" ~ '^[a-z0-9-]{1,32}$'");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Code = "btc",
+                            Name = "Bitcoin"
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000002"),
+                            Code = "eth",
+                            Name = "Ethereum"
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000003"),
+                            Code = "dash",
+                            Name = "Dash"
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000004"),
+                            Code = "ltc",
+                            Name = "Litecoin"
+                        });
+                });
+
+            modelBuilder.Entity("Blockchain.Infrastructure.BlockCypher.BlockCypherNetworkMapping", b =>
+                {
+                    b.Property<Guid>("BlockchainNetworkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("NetworkCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("BlockchainNetworkId");
+
+                    b.HasIndex("CurrencyCode", "NetworkCode")
+                        .IsUnique();
+
+                    b.ToTable("BlockCypherNetworkMappings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlockCypherMappings_Currency", "\"CurrencyCode\" ~ '^[a-z0-9]{1,32}$'");
+
+                            t.HasCheckConstraint("CK_BlockCypherMappings_Network", "\"NetworkCode\" ~ '^[a-z0-9]{1,32}$'");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            BlockchainNetworkId = new Guid("20000000-0000-0000-0000-000000000001"),
+                            CurrencyCode = "btc",
+                            NetworkCode = "main"
+                        },
+                        new
+                        {
+                            BlockchainNetworkId = new Guid("20000000-0000-0000-0000-000000000002"),
+                            CurrencyCode = "btc",
+                            NetworkCode = "test3"
+                        },
+                        new
+                        {
+                            BlockchainNetworkId = new Guid("20000000-0000-0000-0000-000000000003"),
+                            CurrencyCode = "eth",
+                            NetworkCode = "main"
+                        },
+                        new
+                        {
+                            BlockchainNetworkId = new Guid("20000000-0000-0000-0000-000000000004"),
+                            CurrencyCode = "dash",
+                            NetworkCode = "main"
+                        },
+                        new
+                        {
+                            BlockchainNetworkId = new Guid("20000000-0000-0000-0000-000000000005"),
+                            CurrencyCode = "ltc",
+                            NetworkCode = "main"
+                        });
+                });
+
+            modelBuilder.Entity("Blockchain.Domain.BlockchainNetwork", b =>
+                {
+                    b.HasOne("Blockchain.Domain.Cryptocurrency", "Cryptocurrency")
+                        .WithMany()
+                        .HasForeignKey("CryptocurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Cryptocurrency");
+                });
+
+            modelBuilder.Entity("Blockchain.Domain.BlockchainNetworkSnapshot", b =>
+                {
+                    b.HasOne("Blockchain.Domain.BlockchainNetwork", "BlockchainNetwork")
+                        .WithMany()
+                        .HasForeignKey("BlockchainNetworkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("BlockchainNetwork");
+                });
+
+            modelBuilder.Entity("Blockchain.Infrastructure.BlockCypher.BlockCypherNetworkMapping", b =>
+                {
+                    b.HasOne("Blockchain.Domain.BlockchainNetwork", null)
+                        .WithMany()
+                        .HasForeignKey("BlockchainNetworkId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

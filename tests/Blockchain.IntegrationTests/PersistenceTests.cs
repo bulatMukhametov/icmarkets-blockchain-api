@@ -18,8 +18,8 @@ public sealed class PersistenceTests(PostgresFixture postgres) : IClassFixture<P
         Assert.False(db.Database.HasPendingModelChanges());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         var repository = new BlockchainSnapshotRepository(db);
-        var main = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
-        var testnet = BlockchainNetwork.FindSupportedNetwork("btc", "test3")!;
+        var main = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
+        var testnet = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "test3")!;
         var time = DateTimeOffset.UtcNow.AddTicks(17);
         const string raw = "{ \"name\": \"BTC.main\", \"large\": 12345678901234567890, \"extra\": [true,null] }";
         var old = new BlockchainNetworkSnapshot(main, time.AddMinutes(-1), raw);
@@ -34,8 +34,8 @@ public sealed class PersistenceTests(PostgresFixture postgres) : IClassFixture<P
         var handler = new GetSnapshotHistoryHandler(repository);
         var page1 = await handler.HandleAsync(new(main, 1), default);
         Assert.Equal(second.Id, Assert.Single(page1.Items).Id);
-        Assert.Equal(raw, page1.Items[0].Payload);
-        Assert.Equal(second.CreatedAt, page1.Items[0].CreatedAt);
+        Assert.Equal(raw, page1.Items[0].RawResponseJson);
+        Assert.Equal(second.RequestedAtUtc, page1.Items[0].RequestedAtUtc);
         Assert.NotNull(page1.NextCursor);
         var page2 = await handler.HandleAsync(new(main, 1, page1.NextCursor), default);
         Assert.Equal(first.Id, Assert.Single(page2.Items).Id);

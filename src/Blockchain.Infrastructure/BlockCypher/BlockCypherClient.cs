@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 namespace Blockchain.Infrastructure.BlockCypher;
 
 public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter gate, ProviderCircuitBreaker circuit,
+    IBlockCypherNetworkMappings mappings,
     IOptions<BlockCypherOptions> options, TimeProvider clock, ILogger<BlockCypherClient> logger)
     : IBlockchainDataClient
 {
@@ -22,6 +23,8 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
         DateTimeOffset? requestedAt = null;
         try
         {
+            var mapping = await mappings.FindAsync(chain.Id, budget.Token)
+                ?? throw new ProviderException("No BlockCypher source is configured for this network.");
             for (var attempt = 0; ; attempt++)
             {
                 circuit.ThrowIfUnavailable(budget.Token);
@@ -31,7 +34,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
                     var response = await circuit.ExecuteAsync(token =>
                     {
                         requestedAt ??= clock.GetUtcNow();
-                        return SendAttemptAsync(chain, attempt, settings, token);
+                        return SendAttemptAsync(mapping, attempt, settings, token);
                     }, budget.Token);
                     if (IsTransient(response.StatusCode) && attempt < settings.MaxRetries)
                     {
@@ -70,16 +73,16 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
         }
     }
 
-    private async ValueTask<ProviderAttemptResult> SendAttemptAsync(BlockchainNetwork chain, int attempt,
+    private async ValueTask<ProviderAttemptResult> SendAttemptAsync(BlockCypherNetworkMapping mapping, int attempt,
         BlockCypherOptions settings, CancellationToken token)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(settings.AttemptTimeoutSeconds), clock);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, chain.ToString());
+            using var request = new HttpRequestMessage(HttpMethod.Get, mapping.RelativePath);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            logger.LogInformation("Provider {Chain} attempt {Attempt}: HTTP {StatusCode}", chain, attempt + 1, (int)response.StatusCode);
+            logger.LogInformation("Provider {Source} attempt {Attempt}: HTTP {StatusCode}", mapping.RelativePath, attempt + 1, (int)response.StatusCode);
             var retryAfter = response.Headers.RetryAfter;
             var delay = retryAfter?.Delta ?? (retryAfter?.Date - clock.GetUtcNow());
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
@@ -89,7 +92,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
             }
             if (!response.IsSuccessStatusCode) return new(response.StatusCode, null, delay);
             var payload = await ReadPayloadAsync(response, settings.MaxResponseBytes, timeout.Token);
-            ValidatePayload(payload, chain);
+            ValidatePayload(payload, mapping.ExpectedResponseName);
             return new(response.StatusCode, payload, delay);
         }
         catch (OperationCanceledException ex) when (!token.IsCancellationRequested && deadline.IsCancellationRequested)
@@ -117,7 +120,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
         catch (DecoderFallbackException ex) { throw new ProviderException("Provider returned invalid UTF-8.", inner: ex); }
     }
 
-    private static void ValidatePayload(string payload, BlockchainNetwork chain)
+    private static void ValidatePayload(string payload, string expectedResponseName)
     {
         try
         {
@@ -125,7 +128,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
             if (document.RootElement.ValueKind != JsonValueKind.Object ||
                 !document.RootElement.TryGetProperty("name", out var name) ||
                 name.ValueKind != JsonValueKind.String ||
-                !string.Equals(name.GetString(), $"{chain.Coin}.{chain.Network}", StringComparison.OrdinalIgnoreCase))
+                !string.Equals(name.GetString(), expectedResponseName, StringComparison.OrdinalIgnoreCase))
                 throw new ProviderException("Provider returned an unexpected chain document.");
         }
         catch (JsonException ex) { throw new ProviderException("Provider returned invalid JSON.", inner: ex); }

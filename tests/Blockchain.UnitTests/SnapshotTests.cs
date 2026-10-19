@@ -8,15 +8,19 @@ namespace Blockchain.UnitTests;
 
 public sealed class SnapshotTests
 {
-    private static readonly BlockchainNetwork Btc = BlockchainNetwork.FindSupportedNetwork("btc", "main")!;
+    private static readonly BlockchainNetwork Btc = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
 
     [Fact]
-    public void Chain_catalog_distinguishes_networks_and_rejects_invalid_combinations()
+    public void Network_identity_and_kind_are_independent_of_currency_code()
     {
-        Assert.Equal(5, BlockchainNetwork.SupportedNetworks.Count);
-        Assert.Equal(Btc, BlockchainNetwork.FindSupportedNetwork("BTC", "MAIN"));
-        Assert.NotEqual(Btc, BlockchainNetwork.FindSupportedNetwork("btc", "test3"));
-        Assert.Null(BlockchainNetwork.FindSupportedNetwork("eth", "test3"));
+        var currency = new Cryptocurrency(Guid.NewGuid(), " DOGE ", "Dogecoin");
+        var main = new BlockchainNetwork(Guid.NewGuid(), currency, "production", NetworkKind.Mainnet);
+        var test = new BlockchainNetwork(Guid.NewGuid(), currency, "testnet4", NetworkKind.Testnet);
+        Assert.Equal("doge", currency.Code);
+        Assert.Equal(currency.Id, main.CryptocurrencyId);
+        Assert.Equal(NetworkKind.Mainnet, main.Kind);
+        Assert.Equal(NetworkKind.Testnet, test.Kind);
+        Assert.NotEqual(main.Id, test.Id);
     }
 
     [Fact]
@@ -28,9 +32,9 @@ public sealed class SnapshotTests
         var handler = new CaptureSnapshotHandler(new StubClient(new(json, time)), repository);
         var first = await handler.HandleAsync(new(Btc), default);
         await handler.HandleAsync(new(Btc), default);
-        Assert.Equal(json, first.Payload);
-        Assert.Equal(time.UtcTicks - time.UtcTicks % 10, first.CreatedAt.Ticks);
-        Assert.Equal(TimeSpan.Zero, first.CreatedAt.Offset);
+        Assert.Equal(json, first.RawResponseJson);
+        Assert.Equal(time.UtcTicks - time.UtcTicks % 10, first.RequestedAtUtc.Ticks);
+        Assert.Equal(TimeSpan.Zero, first.RequestedAtUtc.Offset);
         Assert.Equal(2, repository.Added.Count); // Equal payloads are still separate observations.
     }
 
@@ -57,7 +61,7 @@ public sealed class SnapshotTests
     public async Task Collection_reports_partial_success_and_still_attempts_all_sources()
     {
         var capture = new StubCapture();
-        var results = await new CaptureAllSnapshotsHandler(capture).HandleAsync(new(), default);
+        var results = await new CaptureAllSnapshotsHandler(capture, new Blockchain.Tests.Shared.TestNetworkCatalog()).HandleAsync(new(), default);
         Assert.Equal(5, results.Count);
         Assert.Equal(4, results.Count(x => x.Succeeded));
         Assert.Equal("provider_timeout", Assert.Single(results, x => !x.Succeeded).Error);
@@ -69,14 +73,14 @@ public sealed class SnapshotTests
         using var source = new CancellationTokenSource();
         source.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new CaptureAllSnapshotsHandler(new StubCapture()).HandleAsync(new(), source.Token));
+            new CaptureAllSnapshotsHandler(new StubCapture(), new Blockchain.Tests.Shared.TestNetworkCatalog()).HandleAsync(new(), source.Token));
     }
 
     [Fact]
     public async Task Collection_does_not_hide_persistence_failures()
     {
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new CaptureAllSnapshotsHandler(new BrokenCapture()).HandleAsync(new(), default));
+            new CaptureAllSnapshotsHandler(new BrokenCapture(), new Blockchain.Tests.Shared.TestNetworkCatalog()).HandleAsync(new(), default));
     }
 
     private sealed class StubClient(ProviderSnapshot? value = null, Exception? error = null) : IBlockchainDataClient
@@ -90,7 +94,7 @@ public sealed class SnapshotTests
         public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork chain, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return chain.Coin == "eth"
+            return chain.Cryptocurrency.Code == "eth"
                 ? Task.FromException<BlockchainNetworkSnapshot>(new ProviderException("timeout", timedOut: true))
                 : Task.FromResult(new BlockchainNetworkSnapshot(chain, DateTimeOffset.UtcNow, "{}"));
         }
