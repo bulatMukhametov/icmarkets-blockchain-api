@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations;
 using Blockchain.Api.Contracts;
 using Blockchain.Application.Abstractions;
 using Blockchain.Application.Snapshots.CaptureSnapshot;
@@ -13,7 +12,6 @@ namespace Blockchain.Api.Controllers;
 [ApiController]
 [Route("api/chains/{coin}/{network}/snapshots")]
 public sealed class SnapshotsController(
-    IBlockchainNetworkCatalog catalog,
     ICommandHandler<CaptureSnapshotCommand, BlockchainNetworkSnapshot> capture,
     IQueryHandler<GetSnapshotQuery, BlockchainNetworkSnapshot?> getSnapshot,
     IQueryHandler<GetSnapshotHistoryQuery, SnapshotHistoryPage> getHistory) : ControllerBase
@@ -28,9 +26,9 @@ public sealed class SnapshotsController(
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status504GatewayTimeout)]
     public async Task<ActionResult<SnapshotResponse>> CaptureSnapshot(string coin, string network, CancellationToken token)
     {
-        var chain = await ResolveNetworkAsync(coin, network, token);
-        var snapshot = await capture.HandleAsync(new(chain), token);
-        return CreatedAtAction(nameof(GetSnapshotById), new { coin = chain.Cryptocurrency.Code, network = chain.Code, id = snapshot.Id },
+        var snapshot = await capture.HandleAsync(new(coin, network), token);
+        return CreatedAtAction(nameof(GetSnapshotById), new { coin = snapshot.BlockchainNetwork.Cryptocurrency.Code,
+            network = snapshot.BlockchainNetwork.Code, id = snapshot.Id },
             SnapshotResponse.From(snapshot));
     }
 
@@ -38,10 +36,10 @@ public sealed class SnapshotsController(
     [ProducesResponseType<SnapshotResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<SnapshotResponse>> GetSnapshotById(string coin, string network, [Range(1, long.MaxValue)] long id,
+    public async Task<ActionResult<SnapshotResponse>> GetSnapshotById(string coin, string network, long id,
         CancellationToken token)
     {
-        var snapshot = await getSnapshot.HandleAsync(new(await ResolveNetworkAsync(coin, network, token), id), token);
+        var snapshot = await getSnapshot.HandleAsync(new(coin, network, id), token);
         return snapshot is null ? NotFound() : Ok(SnapshotResponse.From(snapshot));
     }
 
@@ -49,14 +47,12 @@ public sealed class SnapshotsController(
     [ProducesResponseType<SnapshotHistoryResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<SnapshotHistoryResponse>> GetSnapshotHistory(string coin, string network,
-        [FromQuery, Range(1, 100)] int pageSize = 20,
-        [FromQuery, StringLength(512)] string? cursor = null, CancellationToken token = default)
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20, CancellationToken token = default)
     {
-        var page = await getHistory.HandleAsync(new(await ResolveNetworkAsync(coin, network, token), pageSize, cursor), token);
-        return Ok(new SnapshotHistoryResponse(page.Items.Select(SnapshotResponse.From).ToArray(), page.NextCursor));
+        var result = await getHistory.HandleAsync(new(coin, network, page, pageSize), token);
+        return Ok(new SnapshotHistoryResponse(result.Items.Select(SnapshotResponse.From).ToArray(),
+            result.Page, result.PageSize, result.HasNextPage));
     }
 
-    private async Task<BlockchainNetwork> ResolveNetworkAsync(string coin, string network, CancellationToken token) =>
-        await catalog.FindAsync(coin, network, token)
-        ?? throw new RequestValidationException("chain", "Unsupported currency/network combination. See GET /api/chains.");
 }

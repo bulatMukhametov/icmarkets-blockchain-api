@@ -55,10 +55,10 @@ public sealed class BlockchainDbContext(DbContextOptions<BlockchainDbContext> op
         });
         entity.HasKey(x => x.Id);
         entity.Property(x => x.Id).UseIdentityByDefaultColumn();
-        entity.Property(x => x.RequestedAtUtc).HasColumnName("CreatedAt").HasColumnType("timestamp with time zone");
+        entity.Property(x => x.CreatedAt).HasColumnName("CreatedAt").HasColumnType("timestamp with time zone");
         entity.Property(x => x.RawResponseJson).HasColumnName("Payload").HasColumnType("text").IsRequired();
         entity.HasOne(x => x.BlockchainNetwork).WithMany().HasForeignKey(x => x.BlockchainNetworkId).OnDelete(DeleteBehavior.Restrict);
-        entity.HasIndex(x => new { x.BlockchainNetworkId, x.RequestedAtUtc, x.Id }).IsDescending(false, true, true);
+        entity.HasIndex(x => new { x.BlockchainNetworkId, x.CreatedAt, x.Id }).IsDescending(false, true, true);
         InitialNetworkCatalog.Configure(modelBuilder);
     }
 }

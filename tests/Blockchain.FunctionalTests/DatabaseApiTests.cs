@@ -22,17 +22,25 @@ public sealed class DatabaseApiTests(PostgresFixture postgres) : IClassFixture<P
         var newest = (await second.Content.ReadFromJsonAsync<SnapshotResponse>())!;
         var page1 = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/btc/main/snapshots?pageSize=1"))!;
         Assert.Equal(newest.Id, Assert.Single(page1.Items).Id);
+        Assert.Equal(1, page1.Page);
+        Assert.Equal(1, page1.PageSize);
+        Assert.True(page1.HasNextPage);
         var page2 = (await http.GetFromJsonAsync<SnapshotHistoryResponse>(
-            "/api/chains/btc/main/snapshots?pageSize=1&cursor=" + Uri.EscapeDataString(page1.NextCursor!)))!;
+            "/api/chains/btc/main/snapshots?page=2&pageSize=1"))!;
         Assert.True(Assert.Single(page2.Items).Id < newest.Id);
-        Assert.Null(page2.NextCursor);
+        Assert.Equal(2, page2.Page);
+        Assert.False(page2.HasNextPage);
+        var emptyPage = (await http.GetFromJsonAsync<SnapshotHistoryResponse>(
+            "/api/chains/btc/main/snapshots?page=3&pageSize=1"))!;
+        Assert.Empty(emptyPage.Items);
+        Assert.False(emptyPage.HasNextPage);
         Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/health/ready")).StatusCode);
         Assert.Equal(2, factory.ProviderRequests);
 
         factory.FailingCoin = "eth";
         using var collection = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, collection.StatusCode);
-        var results = (await collection.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
+        var results = (await collection.Content.ReadFromJsonAsync<NetworkCaptureResponse[]>())!;
         Assert.Equal(4, results.Count(x => x.Succeeded));
         foreach (var item in results.Where(x => x.Succeeded))
         {

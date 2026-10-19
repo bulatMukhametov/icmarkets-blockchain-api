@@ -1,4 +1,4 @@
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Networks;
 using Blockchain.Domain;
 
 namespace Blockchain.Tests.Shared;
@@ -18,7 +18,7 @@ public sealed class TestNetworkCatalog : IBlockchainNetworkCatalog
             string.Equals(x.Code, networkCode, StringComparison.OrdinalIgnoreCase)));
 
     public Task<IReadOnlyList<BlockchainNetwork>> GetAllAsync(CancellationToken token) => Task.FromResult(Entries);
-    public Task<IReadOnlyList<BlockchainNetwork>> GetCollectableAsync(CancellationToken token) => Task.FromResult(Entries);
+    public Task<IReadOnlyList<BlockchainNetwork>> GetNetworksAvailableForCaptureAsync(CancellationToken token) => Task.FromResult(Entries);
 
     private static IReadOnlyList<BlockchainNetwork> CreateNetworks()
     {

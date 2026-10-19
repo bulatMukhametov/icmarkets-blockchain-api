@@ -52,7 +52,7 @@ public sealed class SnapshotCollectionWorker(
             var results = await handler.HandleAsync(new(), cancellation.Token);
             foreach (var result in results.Where(x => !x.Succeeded))
                 logger.LogWarning("Background capture failed for {Coin}/{Network}: {Error}",
-                    result.Coin, result.Network, result.Error);
+                    result.CurrencyCode, result.NetworkCode, result.Failure);
             logger.LogInformation("Background capture cycle completed: {Succeeded}/{Total} snapshots saved",
                 results.Count(x => x.Succeeded), results.Count);
         }

@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Providers;
 using Blockchain.Domain;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,7 +14,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
     IOptions<BlockCypherOptions> options, TimeProvider clock, ILogger<BlockCypherClient> logger)
     : IBlockchainDataClient
 {
-    public async Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork chain, CancellationToken cancellationToken)
+    public async Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork network, CancellationToken cancellationToken)
     {
         var settings = options.Value;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(settings.TotalTimeoutSeconds), clock);
@@ -23,7 +23,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
         DateTimeOffset? requestedAt = null;
         try
         {
-            var mapping = await mappings.FindAsync(chain.Id, budget.Token)
+            var mapping = await mappings.FindAsync(network.Id, budget.Token)
                 ?? throw new ProviderException("No BlockCypher source is configured for this network.");
             for (var attempt = 0; ; attempt++)
             {
@@ -68,7 +68,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
         catch (ProviderAttemptTimeoutException ex) { throw new ProviderException("Provider request timed out.", timedOut: true, inner: ex); }
         finally
         {
-            logger.LogInformation("Provider {Chain} finished in {ElapsedMs} ms", chain,
+            logger.LogInformation("Provider {Chain} finished in {ElapsedMs} ms", network,
                 Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
     }
@@ -129,7 +129,7 @@ public sealed class BlockCypherClient(HttpClient http, ProviderRequestLimiter ga
                 !document.RootElement.TryGetProperty("name", out var name) ||
                 name.ValueKind != JsonValueKind.String ||
                 !string.Equals(name.GetString(), expectedResponseName, StringComparison.OrdinalIgnoreCase))
-                throw new ProviderException("Provider returned an unexpected chain document.");
+                throw new ProviderException("Provider returned an unexpected network document.");
         }
         catch (JsonException ex) { throw new ProviderException("Provider returned invalid JSON.", inner: ex); }
     }

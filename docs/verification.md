@@ -6,16 +6,16 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
 
 - .NET SDK 10.0.402; dependencies restored with NuGet vulnerability warnings treated as errors.
 - Release solution build: zero warnings and errors.
-- Latest Release tests: 78 passed, zero failed, zero skipped.
-  - Unit: 14, including catalog invariants and bounded collection for a larger catalog.
+- Latest Release tests: 87 passed, zero failed, zero skipped.
+  - Unit: 23, including request validators, application network resolution, catalog invariants and concurrent collection with results in catalog order.
   - Integration: 47, including populated-database catalog migration, catalog constraints, shared provider cooldown, background scheduling/lifecycle, circuit breaker transitions/concurrency, PostgreSQL migration/model
-    consistency, complete payload preservation, currency/network isolation and keyset pagination.
+    consistency, complete payload preservation, currency/network isolation and page-number pagination.
   - Functional: 17, including dynamically added currencies, catalog readiness, validation errors with different Accept headers, automatic capture without POST, HTTP-to-PostgreSQL capture/history,
     concurrent partial collection and the circuit-open HTTP/batch contracts.
 - The original 28-test suite used a temporary local PostgreSQL 17.11 instance through TEST_POSTGRES_CONNECTION.
   Each test fixture created and removed its own schema.
-- The latest complete Release suite ran with RUN_DATABASE_TESTS=true and TEST_POSTGRES_CONNECTION
-  unset: 78 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
+- The page-pagination Release suite ran with RUN_DATABASE_TESTS=true and TEST_POSTGRES_CONNECTION
+  unset: 82 passed, zero failed, zero skipped. Testcontainers provisioned PostgreSQL 17.11 Linux
   containers and cleaned them up successfully. The test host ran on Windows.
 - Release publish succeeded with UseAppHost=false, as used by the Docker build.
 - Published assembly applied migrations to a fresh database through --migrate.
@@ -123,3 +123,58 @@ Verified on 2026-10-18 and 2026-10-19 in the Windows development workspace.
   the status of the remote workflow.
 
 See README for reproducible commands.
+
+## Application layer refinement (2026-10-19)
+
+- Release suite: 82 passed (18 unit, 47 integration, 17 functional), zero failed or skipped.
+  TRX results are in `TestResults/application-layer/` (ignored local artifacts).
+- Public snapshot commands/queries now accept currency and network codes; handlers resolve them.
+  Direct application tests verify case-insensitive resolution and rejection of unknown networks
+  before provider requests or snapshot persistence, independently of HTTP validation.
+- Batch failures use an application enum; API response DTOs retain the existing error codes and fields.
+- Cursor encoding is separate from cursor data. PostgreSQL pagination and network-isolation tests pass.
+- Domain and provider response time are named CreatedAt; UTC request-start semantics are preserved.
+  The existing CreatedAt column is unchanged. The current EF model snapshot reflects the CLR rename;
+  historical migrations are unchanged. Migration/model-consistency tests pass without a new migration.
+- This verification used test-host APIs and PostgreSQL Testcontainers. The running Compose API image
+  was not rebuilt for this refinement; previous live Docker smoke checks describe the preceding version.
+
+## Simple history pagination (2026-10-19)
+
+- Replaced cursors with page (default 1) and pageSize (default 20, maximum 100).
+  Responses contain items, page, pageSize and hasNextPage; cursor classes were removed.
+- Release tests: 82 passed (18 unit, 47 integration, 17 functional), zero failures or skips.
+  Results: `TestResults/page-pagination/` (local ignored artifacts).
+- PostgreSQL and HTTP tests cover successive pages, equal timestamps, network isolation,
+  the last page and empty pages beyond the end. Application tests cover invalid page bounds
+  and offset overflow before repository access.
+- README records concurrent-insert page shifts, deep-offset cost and cursor pagination as a
+  possible future alternative. Earlier cursor checks above describe historical versions.
+- No schema migration is needed. The running Compose image was not rebuilt for this change.
+
+## FluentValidation (2026-10-19)
+
+- Added FluentValidation 12.2.0 to Application. Validators sit beside CaptureSnapshotCommand,
+  GetSnapshotQuery and GetSnapshotHistoryQuery; handlers explicitly call ValidateAndThrowAsync.
+- Removed duplicate controller Range attributes. HTTP binding still belongs to ASP.NET Core;
+  catalog existence checks, domain invariants and configuration validation retain their existing roles.
+- API maps grouped validation failures to HTTP 400 ValidationProblemDetails with public parameter
+  names. Functional tests verify both page and pageSize errors together with a trace ID for JSON,
+  HTML and XML Accept headers.
+- Verified 87 tests: 23 unit, 47 integration and 17 functional, zero skipped or failed tests.
+  The initial unit build exposed ambiguous target-typed constructors in new validator tests; explicit
+  command/query types fixed it, then all unit tests passed. Integration and functional suites had
+  already passed with the same application code and real PostgreSQL Testcontainers.
+- Results are in TestResults/fluent-validation/ (ignored). Compose was not rebuilt for this change.
+
+## API organization (2026-10-19)
+
+- Split NetworksController and SnapshotCollectionsController while retaining existing HTTP routes.
+- Moved service registration to API Configuration helpers AddApplication and AddApi. Program.cs
+  retains middleware order, migrations mode, Swagger exposure and health endpoint mapping.
+- ApiExceptionHandler uses focused problem-creation methods with a shared response-writing path.
+- All 17 functional tests passed again, zero skipped or failed, including PostgreSQL Testcontainers,
+  catalog and capture routes, background collection, readiness, CORS, provider failures and validation
+  responses for different Accept headers. Results: TestResults/api-cleanup/ (ignored).
+- Application/domain logic did not change; unit/integration results above are from their preceding run.
+  The running Compose image was not rebuilt for this refactoring.

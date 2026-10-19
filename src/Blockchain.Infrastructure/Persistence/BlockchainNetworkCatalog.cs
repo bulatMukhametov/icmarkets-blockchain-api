@@ -1,4 +1,4 @@
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Networks;
 using Blockchain.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,7 +18,7 @@ public sealed class BlockchainNetworkCatalog(BlockchainDbContext db) : IBlockcha
     public async Task<IReadOnlyList<BlockchainNetwork>> GetAllAsync(CancellationToken cancellationToken) =>
         await Networks.OrderBy(x => x.Cryptocurrency.Code).ThenBy(x => x.Code).ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<BlockchainNetwork>> GetCollectableAsync(CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<BlockchainNetwork>> GetNetworksAvailableForCaptureAsync(CancellationToken cancellationToken) =>
         await Networks.Where(x => db.BlockCypherMappings.Any(mapping => mapping.BlockchainNetworkId == x.Id))
             .OrderBy(x => x.Cryptocurrency.Code).ThenBy(x => x.Code).ToListAsync(cancellationToken);
 }

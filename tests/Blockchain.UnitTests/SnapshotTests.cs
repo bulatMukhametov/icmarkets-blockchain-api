@@ -1,7 +1,11 @@
-using Blockchain.Application.Abstractions;
+using FluentValidation;
+using Blockchain.Application.Snapshots.GetSnapshot;
+using Blockchain.Application.Providers;
+using Blockchain.Application.Snapshots;
 using Blockchain.Application.Snapshots.CaptureAllSnapshots;
 using Blockchain.Application.Snapshots.CaptureSnapshot;
 using Blockchain.Application.Snapshots.GetSnapshotHistory;
+using Blockchain.Application.Validation;
 using Blockchain.Domain;
 
 namespace Blockchain.UnitTests;
@@ -9,6 +13,52 @@ namespace Blockchain.UnitTests;
 public sealed class SnapshotTests
 {
     private static readonly BlockchainNetwork Btc = Blockchain.Tests.Shared.TestNetworkCatalog.Find("btc", "main")!;
+
+    [Fact]
+    public async Task Capture_resolves_network_codes_without_caller_loading_an_entity()
+    {
+        var repository = new StubRepository();
+        var handler = new CaptureSnapshotHandler(new StubClient(new("{}", DateTimeOffset.UtcNow)),
+            repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator());
+
+        var snapshot = await handler.HandleAsync(new("BTC", "MAIN"), default);
+
+        Assert.Equal(Btc.Id, snapshot.BlockchainNetworkId);
+        Assert.Single(repository.Added);
+    }
+
+    [Theory]
+    [InlineData("capture")]
+    [InlineData("get")]
+    [InlineData("history")]
+    public async Task Unknown_network_is_rejected_by_application_before_provider_or_snapshot_storage(string scenario)
+    {
+        var repository = new StubRepository();
+        var catalog = new Blockchain.Tests.Shared.TestNetworkCatalog();
+        // A provider call would throw a different exception, making accidental calls visible.
+        var client = new StubClient(error: new InvalidOperationException("Provider must not be called."));
+
+        var error = await Assert.ThrowsAsync<RequestValidationException>(async () =>
+        {
+            switch (scenario)
+            {
+                case "capture":
+                    await new CaptureSnapshotHandler(client, repository, catalog, new CaptureSnapshotCommandValidator()).HandleAsync(new("eth", "test3"), default);
+                    break;
+                case "get":
+                    await new GetSnapshotHandler(repository, catalog, new GetSnapshotQueryValidator())
+                        .HandleAsync(new("eth", "test3", 1), default);
+                    break;
+                default:
+                    await new GetSnapshotHistoryHandler(repository, catalog, new GetSnapshotHistoryQueryValidator()).HandleAsync(new("eth", "test3"), default);
+                    break;
+            }
+        });
+
+        Assert.Equal("chain", error.Field);
+        Assert.Empty(repository.Added);
+        Assert.Equal(0, repository.ReadCount);
+    }
 
     [Fact]
     public void Network_identity_and_kind_are_independent_of_currency_code()
@@ -29,12 +79,12 @@ public sealed class SnapshotTests
         const string json = "{ \"name\":\"BTC.main\", \"unknown\": [12345678901234567890, {\"x\":true}] }";
         var time = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.FromHours(3)).AddTicks(19);
         var repository = new StubRepository();
-        var handler = new CaptureSnapshotHandler(new StubClient(new(json, time)), repository);
-        var first = await handler.HandleAsync(new(Btc), default);
-        await handler.HandleAsync(new(Btc), default);
+        var handler = new CaptureSnapshotHandler(new StubClient(new(json, time)), repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator());
+        var first = await handler.HandleAsync(new("btc", "main"), default);
+        await handler.HandleAsync(new("btc", "main"), default);
         Assert.Equal(json, first.RawResponseJson);
-        Assert.Equal(time.UtcTicks - time.UtcTicks % 10, first.RequestedAtUtc.Ticks);
-        Assert.Equal(TimeSpan.Zero, first.RequestedAtUtc.Offset);
+        Assert.Equal(time.UtcTicks - time.UtcTicks % 10, first.CreatedAt.Ticks);
+        Assert.Equal(TimeSpan.Zero, first.CreatedAt.Offset);
         Assert.Equal(2, repository.Added.Count); // Equal payloads are still separate observations.
     }
 
@@ -42,18 +92,19 @@ public sealed class SnapshotTests
     public async Task Provider_failure_does_not_write_a_snapshot()
     {
         var repository = new StubRepository();
-        var handler = new CaptureSnapshotHandler(new StubClient(error: new ProviderException("offline")), repository);
-        await Assert.ThrowsAsync<ProviderException>(() => handler.HandleAsync(new(Btc), default));
+        var handler = new CaptureSnapshotHandler(new StubClient(error: new ProviderException("offline")), repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new CaptureSnapshotCommandValidator());
+        await Assert.ThrowsAsync<ProviderException>(() => handler.HandleAsync(new("btc", "main"), default));
         Assert.Empty(repository.Added);
     }
 
     [Fact]
-    public async Task History_validates_page_size_and_cursor_before_accessing_repository()
+    public async Task History_validates_page_bounds_before_accessing_repository()
     {
         var repository = new StubRepository();
-        var handler = new GetSnapshotHistoryHandler(repository);
-        await Assert.ThrowsAsync<RequestValidationException>(() => handler.HandleAsync(new(Btc, 101), default));
-        await Assert.ThrowsAsync<RequestValidationException>(() => handler.HandleAsync(new(Btc, 20, "bad!"), default));
+        var handler = new GetSnapshotHistoryHandler(repository, new Blockchain.Tests.Shared.TestNetworkCatalog(), new GetSnapshotHistoryQueryValidator());
+        await Assert.ThrowsAsync<ValidationException>(() => handler.HandleAsync(new("btc", "main", PageSize: 101), default));
+        await Assert.ThrowsAsync<ValidationException>(() => handler.HandleAsync(new("btc", "main", Page: 0), default));
+        await Assert.ThrowsAsync<ValidationException>(() => handler.HandleAsync(new("btc", "main", int.MaxValue, 100), default));
         Assert.Equal(0, repository.ReadCount);
     }
 
@@ -64,7 +115,7 @@ public sealed class SnapshotTests
         var results = await new CaptureAllSnapshotsHandler(capture, new Blockchain.Tests.Shared.TestNetworkCatalog()).HandleAsync(new(), default);
         Assert.Equal(5, results.Count);
         Assert.Equal(4, results.Count(x => x.Succeeded));
-        Assert.Equal("provider_timeout", Assert.Single(results, x => !x.Succeeded).Error);
+        Assert.Equal(SnapshotCaptureFailure.ProviderTimeout, Assert.Single(results, x => !x.Succeeded).Failure);
     }
 
     [Fact]
@@ -85,24 +136,24 @@ public sealed class SnapshotTests
 
     private sealed class StubClient(ProviderSnapshot? value = null, Exception? error = null) : IBlockchainDataClient
     {
-        public Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork chain, CancellationToken cancellationToken) =>
+        public Task<ProviderSnapshot> FetchSnapshotAsync(BlockchainNetwork network, CancellationToken cancellationToken) =>
             error is null ? Task.FromResult(value!) : Task.FromException<ProviderSnapshot>(error);
     }
 
     private sealed class StubCapture : ISnapshotCaptureService
     {
-        public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork chain, CancellationToken cancellationToken)
+        public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork network, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return chain.Cryptocurrency.Code == "eth"
+            return network.Cryptocurrency.Code == "eth"
                 ? Task.FromException<BlockchainNetworkSnapshot>(new ProviderException("timeout", timedOut: true))
-                : Task.FromResult(new BlockchainNetworkSnapshot(chain, DateTimeOffset.UtcNow, "{}"));
+                : Task.FromResult(new BlockchainNetworkSnapshot(network, DateTimeOffset.UtcNow, "{}"));
         }
     }
 
     private sealed class BrokenCapture : ISnapshotCaptureService
     {
-        public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork chain, CancellationToken cancellationToken) =>
+        public Task<BlockchainNetworkSnapshot> CaptureAsync(BlockchainNetwork network, CancellationToken cancellationToken) =>
             Task.FromException<BlockchainNetworkSnapshot>(new InvalidOperationException("database down"));
     }
 
@@ -110,18 +161,21 @@ public sealed class SnapshotTests
     {
         public List<BlockchainNetworkSnapshot> Added { get; } = [];
         public int ReadCount { get; private set; }
-        public Task AddAndSaveAsync(BlockchainNetworkSnapshot snapshot, CancellationToken cancellationToken)
+        public Task SaveAsync(BlockchainNetworkSnapshot snapshot, CancellationToken cancellationToken)
         {
             Added.Add(snapshot);
             return Task.CompletedTask;
         }
-        public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork chain, long id, CancellationToken cancellationToken) =>
-            Task.FromResult<BlockchainNetworkSnapshot?>(null);
-        public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork chain, SnapshotCursor? before,
+        public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork network, long id, CancellationToken cancellationToken)
+        {
+            ReadCount++;
+            return Task.FromResult<BlockchainNetworkSnapshot?>(null);
+        }
+        public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork network, int skip,
             int take, CancellationToken cancellationToken)
         {
             ReadCount++;
-            return Task.FromResult<IReadOnlyList<BlockchainNetworkSnapshot>>(Added.Take(take).ToArray());
+            return Task.FromResult<IReadOnlyList<BlockchainNetworkSnapshot>>(Added.Skip(skip).Take(take).ToArray());
         }
     }
 }

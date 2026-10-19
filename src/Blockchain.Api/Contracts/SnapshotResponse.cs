@@ -9,6 +9,6 @@ public sealed record SnapshotResponse(long Id, string Coin, string Network, Date
     {
         using var document = JsonDocument.Parse(snapshot.RawResponseJson);
         return new(snapshot.Id, snapshot.BlockchainNetwork.Cryptocurrency.Code, snapshot.BlockchainNetwork.Code,
-            snapshot.RequestedAtUtc, document.RootElement.Clone());
+            snapshot.CreatedAt, document.RootElement.Clone());
     }
 }

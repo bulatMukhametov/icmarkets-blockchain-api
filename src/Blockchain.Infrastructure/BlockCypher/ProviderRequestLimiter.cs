@@ -1,4 +1,4 @@
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Providers;
 using Microsoft.Extensions.Options;
 
 namespace Blockchain.Infrastructure.BlockCypher;

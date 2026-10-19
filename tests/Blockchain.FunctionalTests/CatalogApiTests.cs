@@ -39,7 +39,7 @@ public sealed class CatalogApiTests(PostgresFixture postgres) : IClassFixture<Po
         using var saved = await http.GetAsync(capture.Headers.Location);
         Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
         using var batch = await http.PostAsync("/api/snapshot-collections", null);
-        var results = (await batch.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
+        var results = (await batch.Content.ReadFromJsonAsync<NetworkCaptureResponse[]>())!;
         Assert.Equal(6, results.Length);
         Assert.All(results, result => Assert.True(result.Succeeded));
         Assert.Equal(7, factory.ProviderRequests);

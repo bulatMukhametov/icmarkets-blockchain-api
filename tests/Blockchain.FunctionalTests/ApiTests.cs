@@ -16,14 +16,15 @@ public sealed class ApiTests
     {
         await using var factory = new ApiFactory();
         using var http = factory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/chains/btc/main/snapshots?cursor=invalid!");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/chains/btc/main/snapshots?page=0&pageSize=101");
         request.Headers.Accept.ParseAdd(accept);
         using var response = await http.SendAsync(request);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(400, body.RootElement.GetProperty("status").GetInt32());
-        Assert.NotEmpty(body.RootElement.GetProperty("errors").GetProperty("cursor").EnumerateArray());
+        Assert.NotEmpty(body.RootElement.GetProperty("errors").GetProperty("page").EnumerateArray());
+        Assert.NotEmpty(body.RootElement.GetProperty("errors").GetProperty("pageSize").EnumerateArray());
         Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("traceId").GetString()));
         Assert.Equal(0, factory.ProviderRequests);
     }
@@ -34,13 +35,13 @@ public sealed class ApiTests
         await using var factory = new ApiFactory(collectionEnabled: true);
         using var http = factory.CreateClient();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        foreach (var chain in Blockchain.Tests.Shared.TestNetworkCatalog.Networks)
+        foreach (var network in Blockchain.Tests.Shared.TestNetworkCatalog.Networks)
         {
             SnapshotHistoryResponse? history;
             do
             {
                 history = await http.GetFromJsonAsync<SnapshotHistoryResponse>(
-                    $"/api/chains/{chain.Cryptocurrency.Code}/{chain.Code}/snapshots", deadline.Token);
+                    $"/api/chains/{network.Cryptocurrency.Code}/{network.Code}/snapshots", deadline.Token);
                 if (history!.Items.Count == 0) await Task.Delay(25, deadline.Token);
             } while (history.Items.Count == 0);
             Assert.Single(history.Items);
@@ -69,7 +70,7 @@ public sealed class ApiTests
         Assert.Single(history!.Items);
         using var collection = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, collection.StatusCode);
-        var results = (await collection.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
+        var results = (await collection.Content.ReadFromJsonAsync<NetworkCaptureResponse[]>())!;
         Assert.Equal(5, results.Length);
         Assert.All(results, result => { Assert.False(result.Succeeded); Assert.Equal("provider_circuit_open", result.Error); });
         Assert.Equal(5, factory.ProviderRequests);
@@ -99,7 +100,7 @@ public sealed class ApiTests
     [InlineData("/api/chains/eth/test3/snapshots")]
     [InlineData("/api/chains/btc/main/snapshots?pageSize=0")]
     [InlineData("/api/chains/btc/main/snapshots?pageSize=101")]
-    [InlineData("/api/chains/btc/main/snapshots?cursor=invalid!")]
+    [InlineData("/api/chains/btc/main/snapshots?page=0")]
     [InlineData("/api/chains/btc/main/snapshots/0")]
     public async Task Invalid_requests_return_validation_problem_details(string url)
     {
@@ -132,7 +133,7 @@ public sealed class ApiTests
         using var http = factory.CreateClient();
         using var response = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var results = (await response.Content.ReadFromJsonAsync<NetworkCaptureResult[]>())!;
+        var results = (await response.Content.ReadFromJsonAsync<NetworkCaptureResponse[]>())!;
         Assert.Equal(5, results.Length);
         Assert.Equal(4, results.Count(x => x.Succeeded));
         Assert.Equal("provider_unavailable", Assert.Single(results, x => !x.Succeeded).Error);

@@ -104,13 +104,13 @@ namespace Blockchain.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("Payload");
 
-                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("CreatedAt");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BlockchainNetworkId", "RequestedAtUtc", "Id")
+                    b.HasIndex("BlockchainNetworkId", "CreatedAt", "Id")
                         .IsDescending(false, true, true);
 
                     b.ToTable("Snapshots", null, t =>

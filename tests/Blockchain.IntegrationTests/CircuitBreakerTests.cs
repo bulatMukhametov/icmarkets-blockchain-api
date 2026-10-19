@@ -1,5 +1,5 @@
 using System.Net;
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Providers;
 using Blockchain.Domain;
 using Blockchain.Infrastructure.BlockCypher;
 using Microsoft.Extensions.Logging.Abstractions;

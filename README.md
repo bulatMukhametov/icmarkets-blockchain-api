@@ -12,7 +12,7 @@ Two requests produce two observations even when the returned data is identical.
 
 The catalog contains `Cryptocurrency` entities and their `BlockchainNetwork` entities. `NetworkKind`
 classifies a network as Mainnet or Testnet; its code identifies the specific network. A
-`BlockchainNetworkSnapshot` references the network by ID. `RequestedAtUtc` records request-start time
+`BlockchainNetworkSnapshot` references the network by ID. `CreatedAt` records request-start time
 and `RawResponseJson` preserves the original JSON. The HTTP names remain `createdAt` and `payload`.
 See [catalog model and adding a currency](docs/catalog.md) for the relationships and an SQL example.
 
@@ -78,7 +78,7 @@ The development profile enables Swagger. Outside Development enable it explicitl
 | GET | `/api/chains` | Currency/network pairs from the database catalog |
 | POST | `/api/chains/{coin}/{network}/snapshots` | Capture and persist; 201 with Location |
 | GET | `/api/chains/{coin}/{network}/snapshots/{id}` | Stored snapshot or 404 |
-| GET | `/api/chains/{coin}/{network}/snapshots?pageSize=20&cursor=...` | Ordered history page |
+| GET | `/api/chains/{coin}/{network}/snapshots?page=1&pageSize=20` | Ordered history page |
 | POST | `/api/snapshot-collections` | Completed report for all configured sources; 200, possibly partial success |
 | GET | `/health/live` | Process liveness |
 | GET | `/health/ready` | Database/schema readiness |
@@ -93,10 +93,28 @@ or transactions linked from those documents. GET history never triggers collecti
 A snapshot response contains `id`, `coin`, `network`, `createdAt` and `payload` (a JSON object).
 CreatedAt is UTC request-start time, not the provider's `time` field or insertion-completion time.
 Every successful POST appends an observation, even if the blockchain did not change.
-History is ordered by CreatedAt DESC, Id DESC; pageSize is 1..100. Follow `nextCursor` until null.
-Encode the returned cursor as a URL query parameter. Do not interpret its contents as a stable API contract.
+History uses simple page-number pagination, ordered by CreatedAt DESC, Id DESC.
+`page` starts at 1 (default 1), and `pageSize` is 1..100 (default 20).
+The response contains `items`, `page`, `pageSize` and `hasNextPage`. Increment `page` while
+`hasNextPage` is true. A page beyond the available history returns an empty list and `hasNextPage: false`.
+The query uses `Skip((page - 1) * pageSize)` and reads one extra row to determine whether another
+page exists, without a separate total-count query. Offsets greater than Int32.MaxValue return 400.
 
-Invalid parameters/cursors return 400 with ValidationProblemDetails; missing snapshots return 404.
+**Pagination trade-off:** each request reads the current database state. If a new snapshot is inserted
+at the beginning between requests, existing rows shift: page 1 might return A/B/C, then after insertion
+of X, page 2 returns C/D/E. Sorting by creation time does not freeze the dataset, so C is repeated.
+Deep pages also become more expensive because PostgreSQL must skip the preceding rows.
+This implementation favors simplicity for the assignment. For a large, frequently updated history,
+cursor (keyset) pagination can instead pass the last returned `(CreatedAt, Id)` and request rows where
+`CreatedAt < lastCreatedAt OR (CreatedAt = lastCreatedAt AND Id < lastId)`, filtered by network.
+The existing network/time/ID index supports that approach. It avoids shifts caused by newer rows at
+the beginning and large offsets, but does not support jumping directly to an arbitrary page number
+or provide a transactionally frozen export. Cursor pagination is a possible extension, not implemented here.
+
+Invalid parameters return 400 with ValidationProblemDetails; missing snapshots return 404.
+FluentValidation validators live beside application commands/queries and are called explicitly by
+handlers. They return errors for all invalid fields together. ASP.NET Core handles parameter binding;
+domain invariants and database constraints remain separate from request validation.
 Provider errors return 502, provider timeouts 504, an open circuit returns 503 with Retry-After,
 incoming capture saturation returns 429, and unexpected storage failures return 500. Error responses
 contain a trace ID and omit internal exceptions. A batch reports provider errors per chain (including
@@ -153,7 +171,7 @@ contract and do not trip the availability circuit.
 ## Background collection
 
 An optional BackgroundService invokes the same CaptureAllSnapshots command as the collection endpoint.
-Each cycle reads configured networks from the database; at most four captures run concurrently per batch.
+Each cycle reads configured networks from the database and starts their captures with Task.WhenAll. The shared outbound limiter still controls HTTP request rate and quota. There is no separate per-batch concurrency cap; a much larger catalog would need bounded concurrency.
 Enable it locally with `SnapshotCollection__Enabled=true`. For Compose, set
 `SNAPSHOT_COLLECTION_ENABLED=true` in `.env` and run `docker compose up -d`.
 `SNAPSHOT_COLLECTION_INTERVAL_SECONDS` overrides the Compose interval (default 600).
@@ -218,14 +236,16 @@ Start reading the code in this order:
 | --- | --- |
 | `src/Blockchain.Domain` | Currency and network entities, network kind, saved network snapshots |
 | `src/Blockchain.Application/Snapshots` | Capture one/all networks and read stored history; command/query/result files sit beside their handler |
-| `src/Blockchain.Application/Abstractions` | Named contracts for provider access, persistence and scoped capture |
+| `src/Blockchain.Application/Abstractions` | Command/query handler interfaces |
+| `src/Blockchain.Application/Providers`, `Networks`, `Snapshots`, `Validation` | Provider and catalog ports, snapshot persistence/capture contracts, validation errors |
 | `src/Blockchain.Infrastructure/BlockCypher` | HTTP integration, request limiting, shared cooldown and circuit breaker |
 | `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, initial catalog, migrations and repositories |
 | `src/Blockchain.Infrastructure/Collection` | Optional periodic capture using the existing application command |
 | `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
+| `src/Blockchain.Api/Configuration` | AddApplication and AddApi registrations; middleware order remains in Program.cs |
 
 For a single capture, follow `SnapshotsController.CaptureSnapshot` -> `CaptureSnapshotHandler` ->
-`IBlockchainDataClient.FetchSnapshotAsync` -> `IBlockchainSnapshotRepository.AddAndSaveAsync`.
+`IBlockchainDataClient.FetchSnapshotAsync` -> `IBlockchainSnapshotRepository.SaveAsync`.
 For history, follow `GetSnapshotHistory` -> `GetSnapshotHistoryHandler` -> the repository; this path
 never calls the provider. `HandleAsync` is the common command/query handler convention.
 `ScopedSnapshotCaptureService` creates a separate DI scope for each concurrent capture so it owns
@@ -233,7 +253,7 @@ its own DbContext. `ProviderRequestLimiter.WaitForPermitAsync` enforces outbound
 
 - Clean Architecture: Domain ← Application ← Infrastructure; API is the composition root.
 - CQRS: separate command/query handlers, one database, no mediator dependency.
-- Specialized Repository: append, find and keyset history; no generic CRUD or IQueryable leakage.
+- Specialized Repository: append, find and paginated history; no generic CRUD or IQueryable leakage.
 - EF Core DbContext provides Unit of Work; one append is one transaction.
 - Batch calls use independent DI scopes/DbContexts and preserve successful observations.
 

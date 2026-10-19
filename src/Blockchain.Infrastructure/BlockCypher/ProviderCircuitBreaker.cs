@@ -1,5 +1,5 @@
 using System.Net;
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;

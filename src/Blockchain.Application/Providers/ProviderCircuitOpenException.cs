@@ -1,4 +1,4 @@
-namespace Blockchain.Application.Abstractions;
+namespace Blockchain.Application.Providers;
 
 public sealed class ProviderCircuitOpenException(TimeSpan retryAfter, Exception? inner = null)
     : ProviderException("Provider circuit is open; retry later.", inner: inner)

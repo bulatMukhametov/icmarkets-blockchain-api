@@ -152,7 +152,7 @@ public sealed class SnapshotCollectionWorkerTests
                 var call = Interlocked.Increment(ref harness.Calls);
                 harness.Started.Writer.TryWrite(call);
                 await harness.Capture(call, token);
-                return [new("btc", "main", 1, null), new("eth", "main", null, "provider_circuit_open")];
+                return [new("btc", "main", 1, null), new("eth", "main", null, SnapshotCaptureFailure.ProviderCircuitOpen)];
             }
 
             public ValueTask DisposeAsync()

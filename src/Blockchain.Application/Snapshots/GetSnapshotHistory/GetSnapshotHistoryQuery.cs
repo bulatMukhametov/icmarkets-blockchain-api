@@ -1,6 +1,3 @@
-using Blockchain.Application.Abstractions;
-using Blockchain.Domain;
-
 namespace Blockchain.Application.Snapshots.GetSnapshotHistory;
 
-public sealed record GetSnapshotHistoryQuery(BlockchainNetwork Network, int PageSize = 20, string? Cursor = null);
+public sealed record GetSnapshotHistoryQuery(string CurrencyCode, string NetworkCode, int Page = 1, int PageSize = 20);

@@ -32,7 +32,7 @@ public sealed class NetworkCatalogTests
             Assert.Equal(101 + index, snapshots[index].Id);
             Assert.Equal(TestNetworkCatalog.Networks[index].Id, snapshots[index].BlockchainNetworkId);
             Assert.Equal(payload, snapshots[index].RawResponseJson);
-            Assert.Equal(requestedAt, snapshots[index].RequestedAtUtc);
+            Assert.Equal(requestedAt, snapshots[index].CreatedAt);
         }
         Assert.Equal(4, await db.Cryptocurrencies.CountAsync());
         Assert.Equal(5, await db.BlockCypherMappings.CountAsync());
@@ -51,12 +51,12 @@ public sealed class NetworkCatalogTests
         var catalog = new BlockchainNetworkCatalog(db);
         Assert.Equal(network.Id, (await catalog.FindAsync("DOGE", "PRODUCTION", default))!.Id);
         Assert.Contains(await catalog.GetAllAsync(default), x => x.Id == network.Id);
-        Assert.DoesNotContain(await catalog.GetCollectableAsync(default), x => x.Id == network.Id);
+        Assert.DoesNotContain(await catalog.GetNetworksAvailableForCaptureAsync(default), x => x.Id == network.Id);
         db.BlockCypherMappings.Add(new(network.Id, "doge", "main"));
         await db.SaveChangesAsync();
-        Assert.Contains(await catalog.GetCollectableAsync(default), x => x.Id == network.Id);
+        Assert.Contains(await catalog.GetNetworksAvailableForCaptureAsync(default), x => x.Id == network.Id);
         var snapshot = new BlockchainNetworkSnapshot(network, DateTimeOffset.UtcNow, "{}");
-        await new BlockchainSnapshotRepository(db).AddAndSaveAsync(snapshot, default);
+        await new BlockchainSnapshotRepository(db).SaveAsync(snapshot, default);
         db.BlockCypherMappings.Remove(await db.BlockCypherMappings.SingleAsync(x => x.BlockchainNetworkId == network.Id));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();

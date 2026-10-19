@@ -14,14 +14,14 @@ erDiagram
 | Cryptocurrency | Entity: stable ID, unique public Code, display Name |
 | BlockchainNetwork | Entity: stable ID, CryptocurrencyId, Code unique within the currency, Kind |
 | NetworkKind | Enum: Mainnet = 1, Testnet = 2; multiple distinct test networks are allowed |
-| BlockchainNetworkSnapshot | Entity: observation ID, BlockchainNetworkId, RequestedAtUtc, RawResponseJson |
+| BlockchainNetworkSnapshot | Entity: observation ID, BlockchainNetworkId, CreatedAt, RawResponseJson |
 | BlockCypherNetworkMapping | Infrastructure configuration: network ID, provider currency code, provider network code |
 
 The domain has no dependency on BlockCypher. Public catalog codes and provider path segments may differ.
 Currency and network codes are normalized to lowercase and validated at construction. They are stable
 route identifiers: do not rename them when changing a display name or provider mapping. IDs retain the
 relationships; catalog codes are not duplicated in every snapshot. The repository loads catalog
-references when returning snapshots, preserving the existing HTTP response fields and cursor format.
+references when returning snapshots, preserving the snapshot HTTP response fields. History uses page/pageSize pagination.
 
 No Entity base class, generic catalog framework, admin API or extra deployment is introduced. Entities
 carry explicit IDs and invariant-preserving constructors; equality comparisons in persistence use IDs.
@@ -60,14 +60,14 @@ Mapping segments accept only ASCII letters and digits and cannot redirect reques
 
 If the source uses a different protocol or payload format, it still needs a suitable provider adapter.
 The catalog does not make incompatible APIs interchangeable. More sources also consume more of the
-existing shared quota; batch concurrency remains capped at four and does not override that quota.
+existing shared quota. Task.WhenAll starts all configured captures, while the shared outbound limiter controls HTTP request rate and quota. For a much larger catalog, bounded concurrency would be needed.
 
 ## Existing data and migration
 
 IntroduceNetworkCatalog creates the catalog and mappings, then resolves each old snapshot's Coin/Network
 pair to its network ID. Only after backfilling does it enforce the foreign key and remove the old pair
 columns. Snapshot IDs, request timestamps and raw payloads are untouched. An unresolved network aborts
-the migration transaction. Existing history cursors retain their format and public codes.
+the migration transaction. Public currency and network codes remain unchanged; the history API now uses page/pageSize pagination.
 
 Stop old API processes before upgrading the schema because old binaries require the removed columns.
 Compose recreates the API and runs the one-off migration job before starting the new application.

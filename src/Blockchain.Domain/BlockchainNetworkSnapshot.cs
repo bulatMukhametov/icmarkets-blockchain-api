@@ -7,22 +7,22 @@ public sealed class BlockchainNetworkSnapshot
     public Guid BlockchainNetworkId { get; private set; }
     public BlockchainNetwork BlockchainNetwork { get; private set; } = null!;
     /// <summary>UTC time our first provider request started, not a block timestamp or database insert time.</summary>
-    public DateTimeOffset RequestedAtUtc { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
     /// <summary>The complete original JSON response; this is a network summary, not a copy of the blockchain.</summary>
     public string RawResponseJson { get; private set; } = null!;
 
     private BlockchainNetworkSnapshot() { } // EF Core materialization.
 
-    public BlockchainNetworkSnapshot(BlockchainNetwork blockchainNetwork, DateTimeOffset requestedAt, string rawResponseJson)
+    public BlockchainNetworkSnapshot(BlockchainNetwork blockchainNetwork, DateTimeOffset createdAt, string rawResponseJson)
     {
         ArgumentNullException.ThrowIfNull(blockchainNetwork);
         ArgumentException.ThrowIfNullOrWhiteSpace(rawResponseJson);
-        if (requestedAt == default) throw new ArgumentOutOfRangeException(nameof(requestedAt));
+        if (createdAt == default) throw new ArgumentOutOfRangeException(nameof(createdAt));
         BlockchainNetworkId = blockchainNetwork.Id;
         BlockchainNetwork = blockchainNetwork;
-        // PostgreSQL stores microseconds. Normalize before POST responses and cursor creation.
-        var utc = requestedAt.ToUniversalTime();
-        RequestedAtUtc = new DateTimeOffset(utc.Ticks - utc.Ticks % 10, TimeSpan.Zero);
+        // PostgreSQL stores microseconds. Normalize before returning the created snapshot.
+        var utc = createdAt.ToUniversalTime();
+        CreatedAt = new DateTimeOffset(utc.Ticks - utc.Ticks % 10, TimeSpan.Zero);
         RawResponseJson = rawResponseJson;
     }
 }

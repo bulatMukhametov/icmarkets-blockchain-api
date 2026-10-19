@@ -1,5 +1,5 @@
 using System.Net;
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Providers;
 using Blockchain.Domain;
 using Blockchain.Infrastructure.BlockCypher;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,8 +31,8 @@ public sealed class ProviderClientTests
             : new(HttpStatusCode.OK) { Content = new StringContent(json) }, retries: 1);
         var result = await harness.Client.FetchSnapshotAsync(Btc, default);
         Assert.Equal(2, count);
-        Assert.Equal(json, result.Payload);
-        Assert.True(result.RequestedAt <= DateTimeOffset.UtcNow);
+        Assert.Equal(json, result.RawResponseJson);
+        Assert.True(result.CreatedAt <= DateTimeOffset.UtcNow);
     }
 
     [Fact]

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Networks;
+using Blockchain.Application.Providers;
+using Blockchain.Application.Snapshots;
 using Blockchain.Domain;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -68,7 +70,7 @@ public sealed class MemorySnapshotRepository : IBlockchainSnapshotRepository
     private long nextId;
     private readonly ConcurrentDictionary<long, BlockchainNetworkSnapshot> snapshots = new();
 
-    public Task AddAndSaveAsync(BlockchainNetworkSnapshot snapshot, CancellationToken token)
+    public Task SaveAsync(BlockchainNetworkSnapshot snapshot, CancellationToken token)
     {
         var id = Interlocked.Increment(ref nextId);
         typeof(BlockchainNetworkSnapshot).GetProperty(nameof(BlockchainNetworkSnapshot.Id))!.SetValue(snapshot, id);
@@ -76,13 +78,12 @@ public sealed class MemorySnapshotRepository : IBlockchainSnapshotRepository
         return Task.CompletedTask;
     }
 
-    public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork chain, long id, CancellationToken token) =>
-        Task.FromResult(snapshots.TryGetValue(id, out var value) && value.BlockchainNetworkId == chain.Id
+    public Task<BlockchainNetworkSnapshot?> GetByIdAsync(BlockchainNetwork network, long id, CancellationToken token) =>
+        Task.FromResult(snapshots.TryGetValue(id, out var value) && value.BlockchainNetworkId == network.Id
             ? value : null);
 
-    public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork chain, SnapshotCursor? before, int take,
+    public Task<IReadOnlyList<BlockchainNetworkSnapshot>> GetHistoryAsync(BlockchainNetwork network, int skip, int take,
         CancellationToken token) => Task.FromResult<IReadOnlyList<BlockchainNetworkSnapshot>>(snapshots.Values
-        .Where(x => x.BlockchainNetworkId == chain.Id)
-        .Where(x => before is null || x.RequestedAtUtc < before.CreatedAt || (x.RequestedAtUtc == before.CreatedAt && x.Id < before.Id))
-        .OrderByDescending(x => x.RequestedAtUtc).ThenByDescending(x => x.Id).Take(take).ToArray());
+        .Where(x => x.BlockchainNetworkId == network.Id)
+        .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).Skip(skip).Take(take).ToArray());
 }

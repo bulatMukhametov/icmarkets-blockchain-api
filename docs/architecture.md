@@ -2,16 +2,25 @@
 
 ## 1. Clean Architecture and use-case folders
 
-Domain has no framework dependencies. Application references Domain only and owns its ports.
+Domain has no framework dependencies. Application references Domain and FluentValidation and owns its ports.
 Infrastructure implements persistence and the provider client. API owns HTTP contracts and the composition root.
 There is one deployment unit and one database. Application folders group code by use case.
+
+API controllers separate the network catalog (NetworksController), individual snapshots
+(SnapshotsController) and batch capture (SnapshotCollectionsController). Existing routes remain
+/api/chains, /api/chains/{coin}/{network}/snapshots and /api/snapshot-collections.
+Program.cs calls AddApplication, AddInfrastructure and AddApi, then shows the middleware order
+explicitly. AddApplication and AddApi live in the API Configuration folder as composition-root
+helpers; Application itself does not depend on dependency-injection packages.
+ApiExceptionHandler selects the response through small problem-creation methods and shares one
+response-writing path, including the fallback for unsupported Accept headers.
 
 The catalog has two entities with stable GUID identities: Cryptocurrency and BlockchainNetwork.
 A currency code is unique; a network code is unique within its currency. NetworkKind is an enum for
 Mainnet/Testnet classification, not an identifier for a particular network. BlockchainNetworkSnapshot
 is a separate entity with a database-generated ID and a required network foreign key. No currency enum
 or static runtime list limits expansion. Snapshot means an observation, not a complete blockchain
-download. Domain properties RequestedAtUtc and RawResponseJson map to the existing CreatedAt/Payload
+download. Domain properties CreatedAt and RawResponseJson map to the existing CreatedAt/Payload
 database columns and HTTP fields. Public application contracts and use-case messages have named files.
 Provider-specific addresses live in BlockCypherNetworkMappings, not in Domain. Catalog records without
 a mapping remain readable but are excluded from automatic/batch collection; individual capture fails
@@ -22,6 +31,15 @@ No artificial base entities, aggregates or per-currency service inheritance are 
 
 Commands capture new observations. Queries only read stored observations. Handlers implement distinct
 command/query interfaces; CQRS does not require MediatR, separate databases or messaging.
+
+Public snapshot commands and queries accept currency/network codes. Each handler resolves the network
+through the catalog, so calling a use case does not require the controller to load a domain entity first.
+Batch capture uses the same command inside a separate scope per network, including its catalog lookup.
+This deliberately keeps one capture path; the extra indexed lookup is small for this workload.
+Application reports typed capture failures; API maps them to the existing public error strings.
+Provider contracts, network catalog contracts and validation errors live in their respective folders.
+History uses page/pageSize inputs and returns items, page, pageSize and hasNextPage.
+CreatedAt consistently means the first outbound request-start time in UTC, including across retries.
 
 The specialized repository exposes append, find and ordered history operations, without IQueryable
 or a generic CRUD abstraction. EF Core DbContext is the Unit of Work; each append calls SaveChangesAsync.
@@ -38,12 +56,13 @@ CreatedAt is the UTC time immediately before the first HTTP attempt, after waiti
 It remains the first-attempt timestamp if a retry succeeds. Domain normalizes it to PostgreSQL's microsecond
 precision. Each successful capture creates a new row, even if the payload did not change.
 
-History uses keyset pagination ordered by CreatedAt DESC, Id DESC. Id is an identity bigint, resolving equal
-timestamps. The opaque base64url cursor contains both keys and the chain; it is validated before querying.
-The index begins with BlockchainNetworkId and matches the time/ID ordering. A page fetches at most pageSize + 1 observations, without
-tracking or an unbounded count query. A cursor is not signed and is not an authorization token.
-Pagination is a live traversal, not a transactionally frozen export; newly arriving observations may be
-seen on later pages if their request timestamps fall after the cursor in traversal order.
+History uses offset pagination ordered by CreatedAt DESC, Id DESC. Id resolves equal timestamps.
+The repository filters by network, skips (page - 1) * pageSize rows and reads at most pageSize + 1
+observations without tracking. The extra row determines hasNextPage; no total-count query is needed.
+Application validates positive page numbers, pageSize 1..100 and the Int32 offset bound before querying.
+The index begins with BlockchainNetworkId and matches the time/ID ordering. Concurrent inserts can
+shift page boundaries and cause repeated rows, and deep offsets cost more. README documents this
+deliberate simplicity trade-off and a possible future cursor-based alternative.
 
 ## 4. Provider resilience and concurrency
 
@@ -79,7 +98,7 @@ quota while the pause is active. Already admitted calls may finish. The original
 short retries; long pauses fail promptly. Circuit state, cooldown and quota are process-local; multiple
 replicas need an explicit ingestion/coordination design.
 
-Batch capture reads configured networks from the catalog and runs at most four operations concurrently,
+Batch capture reads configured networks from the catalog and awaits all captures with Task.WhenAll,
 each owning a DI scope and DbContext. Provider failures
 are reported per chain, preserving successful observations. Request cancellation propagates. A persistence
 failure causes HTTP 500; already committed snapshots remain. Neither HTTP requests nor the whole batch
@@ -88,8 +107,13 @@ the caller must inspect history before deciding to retry.
 
 ## 5. Validation, mapping and operational boundaries
 
-ApiController and DataAnnotations provide automatic HTTP parameter validation. Application validates
-cursor semantics and page bounds, and the chain catalog prevents unsupported source combinations.
+ApiController handles HTTP parameter binding errors. FluentValidation validators beside the application
+commands/queries check required codes, positive IDs and pagination bounds (including offset overflow).
+Handlers explicitly await ValidateAndThrowAsync before accessing the catalog, provider or repository.
+API maps all validation failures to ValidationProblemDetails with public parameter names and a trace ID.
+There is no automatic MVC validation integration or mediator pipeline. The handler's catalog lookup
+rejects unsupported network combinations without a duplicate database query in a validator.
+Domain constructors retain invariant checks; database constraints retain uniqueness and foreign keys.
 Provider JSON is validated before storage. Mapping from entity to HTTP DTO is explicit, without a mapping
 library for this single projection. System.Text.Json serializes the response envelope.
 

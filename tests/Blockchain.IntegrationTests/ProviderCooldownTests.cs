@@ -1,5 +1,5 @@
 using System.Net;
-using Blockchain.Application.Abstractions;
+using Blockchain.Application.Providers;
 using Blockchain.Domain;
 using Blockchain.Infrastructure.BlockCypher;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -47,7 +47,7 @@ public sealed class ProviderCooldownTests
         Assert.Equal(1, handler.Calls);
         clock.Advance(TimeSpan.FromSeconds(30));
         var snapshot = await CreateClient().FetchSnapshotAsync(network, default);
-        Assert.Equal("{\"name\":\"BTC.main\"}", snapshot.Payload);
+        Assert.Equal("{\"name\":\"BTC.main\"}", snapshot.RawResponseJson);
         Assert.Equal(2, handler.Calls);
     }
 
