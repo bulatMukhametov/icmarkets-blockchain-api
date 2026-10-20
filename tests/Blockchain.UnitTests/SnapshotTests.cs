@@ -55,7 +55,7 @@ public sealed class SnapshotTests
             }
         });
 
-        Assert.Equal("chain", error.Field);
+        Assert.Equal("network", error.Field);
         Assert.Empty(repository.Added);
         Assert.Equal(0, repository.ReadCount);
     }

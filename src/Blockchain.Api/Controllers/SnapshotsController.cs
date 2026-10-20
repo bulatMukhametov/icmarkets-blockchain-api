@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace Blockchain.Api.Controllers;
 
 [ApiController]
-[Route("api/chains/{coin}/{network}/snapshots")]
+[Route("api/networks/{coin}/{network}/snapshots")]
 public sealed class SnapshotsController(
     ICommandHandler<CaptureSnapshotCommand, BlockchainNetworkSnapshot> capture,
     IQueryHandler<GetSnapshotQuery, BlockchainNetworkSnapshot?> getSnapshot,

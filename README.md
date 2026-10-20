@@ -49,8 +49,8 @@ Open [Swagger](http://localhost:5080/swagger), [liveness](http://localhost:5080/
 or [readiness](http://localhost:5080/health/ready). API and database ports bind to localhost.
 
 ```sh
-curl -X POST http://localhost:5080/api/chains/btc/main/snapshots
-curl 'http://localhost:5080/api/chains/btc/main/snapshots?pageSize=20'
+curl -X POST http://localhost:5080/api/networks/btc/main/snapshots
+curl 'http://localhost:5080/api/networks/btc/main/snapshots?pageSize=20'
 curl -X POST http://localhost:5080/api/snapshot-collections
 docker compose down
 ```
@@ -126,10 +126,10 @@ Provider and worker Options are still validated at startup.
 
 | Method | Route | Result |
 | --- | --- | --- |
-| GET | `/api/chains` | Currency/network pairs from the database catalog |
-| POST | `/api/chains/{coin}/{network}/snapshots` | Capture and persist; 201 with Location |
-| GET | `/api/chains/{coin}/{network}/snapshots/{id}` | Stored snapshot or 404 |
-| GET | `/api/chains/{coin}/{network}/snapshots?page=1&pageSize=20` | Ordered history page |
+| GET | `/api/networks` | Currency/network pairs from the database catalog |
+| POST | `/api/networks/{coin}/{network}/snapshots` | Capture and persist; 201 with Location |
+| GET | `/api/networks/{coin}/{network}/snapshots/{id}` | Stored snapshot or 404 |
+| GET | `/api/networks/{coin}/{network}/snapshots?page=1&pageSize=20` | Ordered history page |
 | POST | `/api/snapshot-collections` | Completed report for all configured sources; 200, possibly partial success |
 | GET | `/health/live` | Process liveness |
 | GET | `/health/ready` | Database/schema readiness |

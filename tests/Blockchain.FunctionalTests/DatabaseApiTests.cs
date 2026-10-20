@@ -15,23 +15,23 @@ public sealed class DatabaseApiTests(PostgresFixture postgres) : IClassFixture<P
         await postgres.StartAsync();
         await using var factory = new ApiFactory(postgres.ConnectionString);
         using var http = factory.CreateClient();
-        using var first = await http.PostAsync("/api/chains/btc/main/snapshots", null);
-        using var second = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+        using var first = await http.PostAsync("/api/networks/btc/main/snapshots", null);
+        using var second = await http.PostAsync("/api/networks/btc/main/snapshots", null);
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
         var newest = (await second.Content.ReadFromJsonAsync<SnapshotResponse>())!;
-        var page1 = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/btc/main/snapshots?pageSize=1"))!;
+        var page1 = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/networks/btc/main/snapshots?pageSize=1"))!;
         Assert.Equal(newest.Id, Assert.Single(page1.Items).Id);
         Assert.Equal(1, page1.Page);
         Assert.Equal(1, page1.PageSize);
         Assert.True(page1.HasNextPage);
         var page2 = (await http.GetFromJsonAsync<SnapshotHistoryResponse>(
-            "/api/chains/btc/main/snapshots?page=2&pageSize=1"))!;
+            "/api/networks/btc/main/snapshots?page=2&pageSize=1"))!;
         Assert.True(Assert.Single(page2.Items).Id < newest.Id);
         Assert.Equal(2, page2.Page);
         Assert.False(page2.HasNextPage);
         var emptyPage = (await http.GetFromJsonAsync<SnapshotHistoryResponse>(
-            "/api/chains/btc/main/snapshots?page=3&pageSize=1"))!;
+            "/api/networks/btc/main/snapshots?page=3&pageSize=1"))!;
         Assert.Empty(emptyPage.Items);
         Assert.False(emptyPage.HasNextPage);
         Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/health/ready")).StatusCode);
@@ -44,7 +44,7 @@ public sealed class DatabaseApiTests(PostgresFixture postgres) : IClassFixture<P
         Assert.Equal(4, results.Count(x => x.Succeeded));
         foreach (var item in results.Where(x => x.Succeeded))
         {
-            using var persisted = await http.GetAsync($"/api/chains/{item.Coin}/{item.Network}/snapshots/{item.SnapshotId}");
+            using var persisted = await http.GetAsync($"/api/networks/{item.Coin}/{item.Network}/snapshots/{item.SnapshotId}");
             Assert.Equal(HttpStatusCode.OK, persisted.StatusCode);
         }
     }

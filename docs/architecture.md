@@ -8,7 +8,7 @@ There is one deployment unit and one database. Application folders group code by
 
 API controllers separate the network catalog (NetworksController), individual snapshots
 (SnapshotsController) and batch capture (SnapshotCollectionsController). Existing routes remain
-/api/chains, /api/chains/{coin}/{network}/snapshots and /api/snapshot-collections.
+/api/networks, /api/networks/{coin}/{network}/snapshots and /api/snapshot-collections.
 Program.cs calls AddApplication, AddInfrastructure and AddApi, then shows the middleware order
 explicitly. AddApplication and AddApi live in the API Configuration folder as composition-root
 helpers; Application itself does not depend on dependency-injection packages.

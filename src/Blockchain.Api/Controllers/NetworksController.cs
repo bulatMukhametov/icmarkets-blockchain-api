@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Blockchain.Api.Controllers;
 
 [ApiController]
-[Route("api/chains")]
+[Route("api/networks")]
 public sealed class NetworksController(IBlockchainNetworkCatalog catalog) : ControllerBase
 {
     [HttpGet]

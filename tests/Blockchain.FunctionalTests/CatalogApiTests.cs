@@ -27,10 +27,10 @@ public sealed class CatalogApiTests(PostgresFixture postgres) : IClassFixture<Po
 
         await using var factory = new ApiFactory(postgres.ConnectionString);
         using var http = factory.CreateClient();
-        var networks = (await http.GetFromJsonAsync<BlockchainNetworkResponse[]>("/api/chains"))!;
+        var networks = (await http.GetFromJsonAsync<BlockchainNetworkResponse[]>("/api/networks"))!;
         Assert.Equal(6, networks.Length);
         Assert.Contains(networks, x => x.Coin == "doge" && x.Network == "production");
-        using var capture = await http.PostAsync("/api/chains/DOGE/PRODUCTION/snapshots", null);
+        using var capture = await http.PostAsync("/api/networks/DOGE/PRODUCTION/snapshots", null);
         Assert.Equal(HttpStatusCode.Created, capture.StatusCode);
         var snapshot = (await capture.Content.ReadFromJsonAsync<SnapshotResponse>())!;
         Assert.Equal("doge", snapshot.Coin);
@@ -43,7 +43,7 @@ public sealed class CatalogApiTests(PostgresFixture postgres) : IClassFixture<Po
         Assert.Equal(6, results.Length);
         Assert.All(results, result => Assert.True(result.Succeeded));
         Assert.Equal(7, factory.ProviderRequests);
-        var history = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/doge/production/snapshots"))!;
+        var history = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/networks/doge/production/snapshots"))!;
         Assert.Equal(2, history.Items.Count);
         Assert.Equal(7, factory.ProviderRequests);
 
@@ -52,10 +52,10 @@ public sealed class CatalogApiTests(PostgresFixture postgres) : IClassFixture<Po
             db.BlockCypherMappings.Remove(await db.BlockCypherMappings.SingleAsync(x => x.CurrencyCode == "doge"));
             await db.SaveChangesAsync();
         }
-        using var unmapped = await http.PostAsync("/api/chains/doge/production/snapshots", null);
+        using var unmapped = await http.PostAsync("/api/networks/doge/production/snapshots", null);
         Assert.Equal(HttpStatusCode.BadGateway, unmapped.StatusCode);
         Assert.Equal(7, factory.ProviderRequests);
-        var preserved = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/doge/production/snapshots"))!;
+        var preserved = (await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/networks/doge/production/snapshots"))!;
         Assert.Equal(2, preserved.Items.Count);
     }
 }

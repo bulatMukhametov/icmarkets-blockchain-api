@@ -16,7 +16,7 @@ public sealed class ApiTests
     {
         await using var factory = new ApiFactory();
         using var http = factory.CreateClient();
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/chains/btc/main/snapshots?page=0&pageSize=101");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/networks/btc/main/snapshots?page=0&pageSize=101");
         request.Headers.Accept.ParseAdd(accept);
         using var response = await http.SendAsync(request);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -30,7 +30,7 @@ public sealed class ApiTests
     }
 
     [Fact]
-    public async Task Enabled_worker_populates_all_chain_histories_without_a_capture_request()
+    public async Task Enabled_worker_populates_all_network_histories_without_a_capture_request()
     {
         await using var factory = new ApiFactory(collectionEnabled: true);
         using var http = factory.CreateClient();
@@ -41,7 +41,7 @@ public sealed class ApiTests
             do
             {
                 history = await http.GetFromJsonAsync<SnapshotHistoryResponse>(
-                    $"/api/chains/{network.Cryptocurrency.Code}/{network.Code}/snapshots", deadline.Token);
+                    $"/api/networks/{network.Cryptocurrency.Code}/{network.Code}/snapshots", deadline.Token);
                 if (history!.Items.Count == 0) await Task.Delay(25, deadline.Token);
             } while (history.Items.Count == 0);
             Assert.Single(history.Items);
@@ -54,19 +54,19 @@ public sealed class ApiTests
     {
         await using var factory = new ApiFactory();
         using var http = factory.CreateClient();
-        using var created = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+        using var created = await http.PostAsync("/api/networks/btc/main/snapshots", null);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         factory.FailingCoin = "btc";
         for (var i = 0; i < 4; i++)
         {
-            using var failure = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+            using var failure = await http.PostAsync("/api/networks/btc/main/snapshots", null);
             Assert.Equal(HttpStatusCode.BadGateway, failure.StatusCode);
         }
-        using var blocked = await http.PostAsync("/api/chains/eth/main/snapshots", null);
+        using var blocked = await http.PostAsync("/api/networks/eth/main/snapshots", null);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, blocked.StatusCode);
         Assert.InRange(blocked.Headers.RetryAfter!.Delta!.Value.TotalSeconds, 1, 30);
         Assert.Equal("application/problem+json", blocked.Content.Headers.ContentType?.MediaType);
-        var history = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/btc/main/snapshots");
+        var history = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/networks/btc/main/snapshots");
         Assert.Single(history!.Items);
         using var collection = await http.PostAsync("/api/snapshot-collections", null);
         Assert.Equal(HttpStatusCode.OK, collection.StatusCode);
@@ -81,7 +81,7 @@ public sealed class ApiTests
     {
         await using var factory = new ApiFactory();
         using var http = factory.CreateClient();
-        using var created = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+        using var created = await http.PostAsync("/api/networks/btc/main/snapshots", null);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         Assert.NotNull(created.Headers.Location);
         var snapshot = (await created.Content.ReadFromJsonAsync<SnapshotResponse>())!;
@@ -89,19 +89,19 @@ public sealed class ApiTests
         Assert.Equal("12345678901234567890", snapshot.Payload.GetProperty("unknown").GetProperty("large").GetRawText());
         using var get = await http.GetAsync(created.Headers.Location);
         Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-        var history = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/btc/main/snapshots");
+        var history = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/networks/btc/main/snapshots");
         Assert.Equal(snapshot.Id, Assert.Single(history!.Items).Id);
         Assert.Equal(1, factory.ProviderRequests);
         Assert.Equal(HttpStatusCode.NotFound,
-            (await http.GetAsync($"/api/chains/btc/test3/snapshots/{snapshot.Id}")).StatusCode);
+            (await http.GetAsync($"/api/networks/btc/test3/snapshots/{snapshot.Id}")).StatusCode);
     }
 
     [Theory]
-    [InlineData("/api/chains/eth/test3/snapshots")]
-    [InlineData("/api/chains/btc/main/snapshots?pageSize=0")]
-    [InlineData("/api/chains/btc/main/snapshots?pageSize=101")]
-    [InlineData("/api/chains/btc/main/snapshots?page=0")]
-    [InlineData("/api/chains/btc/main/snapshots/0")]
+    [InlineData("/api/networks/eth/test3/snapshots")]
+    [InlineData("/api/networks/btc/main/snapshots?pageSize=0")]
+    [InlineData("/api/networks/btc/main/snapshots?pageSize=101")]
+    [InlineData("/api/networks/btc/main/snapshots?page=0")]
+    [InlineData("/api/networks/btc/main/snapshots/0")]
     public async Task Invalid_requests_return_validation_problem_details(string url)
     {
         await using var factory = new ApiFactory();
@@ -119,10 +119,10 @@ public sealed class ApiTests
     {
         await using var factory = new ApiFactory { FailingCoin = "btc" };
         using var http = factory.CreateClient();
-        using var response = await http.PostAsync("/api/chains/btc/main/snapshots", null);
+        using var response = await http.PostAsync("/api/networks/btc/main/snapshots", null);
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        var page = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/chains/btc/main/snapshots");
+        var page = await http.GetFromJsonAsync<SnapshotHistoryResponse>("/api/networks/btc/main/snapshots");
         Assert.Empty(page!.Items);
     }
 
@@ -147,7 +147,7 @@ public sealed class ApiTests
         using var http = factory.CreateClient();
         Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/health/live")).StatusCode);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await http.GetAsync("/health/ready")).StatusCode);
-        using var request = new HttpRequestMessage(HttpMethod.Options, "/api/chains");
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/api/networks");
         request.Headers.Add("Origin", "http://localhost:5173");
         request.Headers.Add("Access-Control-Request-Method", "POST");
         using var response = await http.SendAsync(request);
@@ -155,6 +155,9 @@ public sealed class ApiTests
         using var swagger = JsonDocument.Parse(await http.GetStringAsync("/swagger/v1/swagger.json"));
         Assert.True(swagger.RootElement.GetProperty("paths").TryGetProperty("/api/snapshot-collections", out _));
         var paths = swagger.RootElement.GetProperty("paths");
+        Assert.True(paths.TryGetProperty("/api/networks", out _));
+        Assert.True(paths.TryGetProperty("/api/networks/{coin}/{network}/snapshots", out _));
+        Assert.True(paths.TryGetProperty("/api/networks/{coin}/{network}/snapshots/{id}", out _));
         var liveResponses = paths.GetProperty("/health/live").GetProperty("get").GetProperty("responses");
         Assert.True(liveResponses.GetProperty("200").GetProperty("content").TryGetProperty("text/plain", out _));
         var readyResponses = paths.GetProperty("/health/ready").GetProperty("get").GetProperty("responses");

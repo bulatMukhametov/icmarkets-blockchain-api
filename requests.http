@@ -1,16 +1,16 @@
 @baseUrl = http://localhost:5080
 
 ### Supported currency/network combinations
-GET {{baseUrl}}/api/chains
+GET {{baseUrl}}/api/networks
 
 ### Capture one observation (consumes one or more provider attempts)
-POST {{baseUrl}}/api/chains/btc/main/snapshots
+POST {{baseUrl}}/api/networks/btc/main/snapshots
 
 ### Read stored history without contacting the provider
-GET {{baseUrl}}/api/chains/btc/main/snapshots?page=1&pageSize=20
+GET {{baseUrl}}/api/networks/btc/main/snapshots?page=1&pageSize=20
 
 ### Read a stored observation (replace the ID with one returned by POST)
-GET {{baseUrl}}/api/chains/btc/main/snapshots/1
+GET {{baseUrl}}/api/networks/btc/main/snapshots/1
 
 ### Capture configured sources (initial catalog: five networks; each attempted request consumes quota)
 POST {{baseUrl}}/api/snapshot-collections

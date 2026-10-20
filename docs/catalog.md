@@ -31,7 +31,7 @@ CatalogCode is a shared internal validation helper, not a separate domain object
 
 Adding a currency served by the existing provider protocol requires catalog data and a mapping, not a
 new handler, enum member or schema migration. The five exercise sources are migration seed data only.
-Runtime code always queries the database. GET /api/chains lists catalog networks; batch and background
+Runtime code always queries the database. GET /api/networks lists catalog networks; batch and background
 capture query only networks with a configured mapping. New configuration is visible on the next call
 or background cycle without restarting the process.
 
@@ -54,7 +54,7 @@ SELECT "Id", 'doge', 'main' FROM network;
 
 This is one atomic statement. Duplicate currency/network codes are rejected by unique indexes.
 For an existing currency, insert a network referencing its existing ID instead of inserting the currency.
-The application then exposes /api/chains/doge/production/snapshots and requests doge/main from BlockCypher.
+The application then exposes /api/networks/doge/production/snapshots and requests doge/main from BlockCypher.
 The adapter validates the response name against DOGE.main, using the mapping rather than public codes.
 Mapping segments accept only ASCII letters and digits and cannot redirect requests to another host.
 
