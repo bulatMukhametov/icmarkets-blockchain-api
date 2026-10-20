@@ -154,6 +154,12 @@ public sealed class ApiTests
         Assert.Equal("http://localhost:5173", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
         using var swagger = JsonDocument.Parse(await http.GetStringAsync("/swagger/v1/swagger.json"));
         Assert.True(swagger.RootElement.GetProperty("paths").TryGetProperty("/api/snapshot-collections", out _));
+        var paths = swagger.RootElement.GetProperty("paths");
+        var liveResponses = paths.GetProperty("/health/live").GetProperty("get").GetProperty("responses");
+        Assert.True(liveResponses.GetProperty("200").GetProperty("content").TryGetProperty("text/plain", out _));
+        var readyResponses = paths.GetProperty("/health/ready").GetProperty("get").GetProperty("responses");
+        Assert.True(readyResponses.TryGetProperty("200", out _));
+        Assert.True(readyResponses.GetProperty("503").GetProperty("content").TryGetProperty("text/plain", out _));
         Assert.Equal(0, factory.ProviderRequests);
     }
 }

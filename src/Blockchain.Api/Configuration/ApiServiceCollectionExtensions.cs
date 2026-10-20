@@ -12,7 +12,7 @@ public static class ApiServiceCollectionExtensions
     {
         services.AddControllers();
         services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen();
+        services.AddSwaggerGen(options => options.DocumentFilter<HealthChecksDocumentFilter>());
         services.AddExceptionHandler<ApiExceptionHandler>();
         services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);

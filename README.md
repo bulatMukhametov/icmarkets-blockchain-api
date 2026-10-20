@@ -20,7 +20,7 @@ and query the stored observation history. .NET 10, ASP.NET Core, EF Core and Pos
 | Asynchronous or parallel patterns | async/await and Task.WhenAll for collecting configured networks |
 | At least two design patterns | CQRS and specialized Repository; EF Core DbContext provides the unit-of-work behavior |
 | Optional API Gateway | Deliberately omitted for a single API deployment |
-| Public GitHub repository, README, main/development branches | Repository link and final delivery checks are listed at the end; local changes still need to be committed and published before submission |
+| Public GitHub repository, README, main/development branches | Repository link and final delivery checks are listed at the end; main contains the submission version and development is used for ongoing work |
 
 ## What the application stores
 
@@ -295,12 +295,12 @@ Start reading the code in this order:
 | `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, initial catalog, migrations and repositories |
 | `src/Blockchain.Infrastructure/Persistence/Configurations` | One EF Core mapping configuration per entity |
 | `src/Blockchain.Infrastructure/Collection` | Optional periodic capture using the existing application command |
+| `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
+| `src/Blockchain.Api/Configuration` | AddApplication and AddApi registrations; middleware order remains in Program.cs |
 
 In the provider integration, `BlockCypherClient` handles HTTP calls and error translation,
 `BlockCypherResponseReader` reads and validates the original JSON, and `ProviderResiliencePipeline`
 coordinates retries, request limiting and the shared circuit breaker.
-| `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
-| `src/Blockchain.Api/Configuration` | AddApplication and AddApi registrations; middleware order remains in Program.cs |
 
 For a single capture, follow `SnapshotsController.CaptureSnapshot` -> `CaptureSnapshotHandler` ->
 `IBlockchainDataClient.FetchSnapshotAsync` -> `IBlockchainSnapshotRepository.SaveAsync`.

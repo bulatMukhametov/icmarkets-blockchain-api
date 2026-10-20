@@ -231,3 +231,15 @@ See README for reproducible commands.
   or skips, including PostgreSQL Testcontainers and provider resilience scenarios.
 - Results: TestResults/infrastructure-readability/ (ignored). No migration was added.
   The Compose application image was not rebuilt.
+
+## Customer review fixes (2026-10-20)
+
+- Added Swagger documentation for middleware health endpoints: liveness returns 200;
+  readiness returns 200 or 503, with text/plain bodies. Runtime health checks are unchanged.
+- Extended the existing functional test to verify both documented paths and response contracts.
+  All 17 functional tests passed with PostgreSQL Testcontainers, zero failures or skips.
+  Results: TestResults/review-fixes/ (ignored).
+- Repaired the README architecture table and removed the stale unpublished-changes statement.
+- The preceding independent review of 96a3194 passed all 87 tests and built/smoke-tested a Linux
+  image with an isolated PostgreSQL database. The documentation fixes above were verified through
+  functional tests; that image was not rebuilt for this follow-up.
