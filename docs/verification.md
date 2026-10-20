@@ -219,3 +219,15 @@ See README for reproducible commands.
   PostgreSQL Testcontainers and worker startup. Results: TestResults/configuration/ (ignored).
 - README documents local launch, User Secrets, precedence, environment overrides and EF design-time
   configuration. Compose containers were not restarted or rebuilt; database credentials were not changed.
+
+## Infrastructure readability (2026-10-20)
+
+- Extracted per-entity EF Core configurations from BlockchainDbContext, preserving mappings,
+  constraints, indexes and seed registration. The pending-model-change check passed.
+- Grouped dependency registration by persistence, provider integration and background collection.
+- Extracted bounded UTF-8/JSON/network validation into BlockCypherResponseReader and gave retry
+  classification and attempt execution named methods. Expanded compact error handling for readability.
+- Complete Release suite passed: 87 tests (23 unit, 47 integration, 17 functional), zero failures
+  or skips, including PostgreSQL Testcontainers and provider resilience scenarios.
+- Results: TestResults/infrastructure-readability/ (ignored). No migration was added.
+  The Compose application image was not rebuilt.

@@ -65,14 +65,19 @@ public sealed class ProviderCircuitBreaker
         var remaining = new DateTimeOffset(Interlocked.Read(ref retryAtTicks), TimeSpan.Zero) - clock.GetUtcNow();
         if (state.CircuitState == CircuitState.HalfOpen ||
             (state.CircuitState == CircuitState.Open && remaining > TimeSpan.Zero))
+        {
             throw new ProviderCircuitOpenException(remaining);
+        }
     }
 
     internal async ValueTask<ProviderAttemptResult> ExecuteAsync(
         Func<CancellationToken, ValueTask<ProviderAttemptResult>> action, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        try { return await pipeline.ExecuteAsync(action, token); }
+        try
+        {
+            return await pipeline.ExecuteAsync(action, token);
+        }
         catch (BrokenCircuitException ex)
         {
             throw new ProviderCircuitOpenException(ex.RetryAfter ?? TimeSpan.FromSeconds(1), ex);

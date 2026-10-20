@@ -1,0 +1,19 @@
+using Blockchain.Domain;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Blockchain.Infrastructure.Persistence.Configurations;
+
+internal sealed class CryptocurrencyConfiguration : IEntityTypeConfiguration<Cryptocurrency>
+{
+    public void Configure(EntityTypeBuilder<Cryptocurrency> builder)
+    {
+        builder.ToTable("Cryptocurrencies", table =>
+            table.HasCheckConstraint("CK_Cryptocurrencies_Code", "\"Code\" ~ '^[a-z0-9-]{1,32}$'"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.Code).HasMaxLength(32).IsRequired();
+        builder.Property(x => x.Name).HasMaxLength(100).IsRequired();
+        builder.HasIndex(x => x.Code).IsUnique();
+    }
+}

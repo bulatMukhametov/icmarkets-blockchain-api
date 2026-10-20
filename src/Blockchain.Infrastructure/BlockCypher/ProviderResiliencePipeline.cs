@@ -23,13 +23,7 @@ internal sealed class ProviderResiliencePipeline
                 MaxRetryAttempts = settings.MaxRetries,
                 Delay = TimeSpan.FromMilliseconds(500),
                 BackoffType = DelayBackoffType.Constant,
-                ShouldHandle = args => new ValueTask<bool>(args.Outcome.Exception switch
-                {
-                    HttpRequestException or IOException or ProviderAttemptTimeoutException => true,
-                    null => args.Outcome.Result.StatusCode == HttpStatusCode.RequestTimeout ||
-                        (int)args.Outcome.Result.StatusCode >= 500,
-                    _ => false
-                }),
+                ShouldHandle = args => new ValueTask<bool>(ShouldRetry(args.Outcome)),
                 OnRetry = args =>
                 {
                     // Do not wait for another attempt if this failure opened the shared circuit.
@@ -43,10 +37,20 @@ internal sealed class ProviderResiliencePipeline
 
     public ValueTask<ProviderAttemptResult> ExecuteAsync(
         Func<CancellationToken, ValueTask<ProviderAttemptResult>> send, CancellationToken token) =>
-        retries.ExecuteAsync(async attemptToken =>
-        {
-            circuit.ThrowIfUnavailable(attemptToken);
-            await limiter.WaitForPermitAsync(attemptToken);
-            return await circuit.ExecuteAsync(send, attemptToken);
-        }, token);
+        retries.ExecuteAsync(attemptToken => ExecuteAttemptAsync(send, attemptToken), token);
+
+    private async ValueTask<ProviderAttemptResult> ExecuteAttemptAsync(
+        Func<CancellationToken, ValueTask<ProviderAttemptResult>> send, CancellationToken cancellationToken)
+    {
+        circuit.ThrowIfUnavailable(cancellationToken);
+        await limiter.WaitForPermitAsync(cancellationToken);
+        return await circuit.ExecuteAsync(send, cancellationToken);
+    }
+
+    private static bool ShouldRetry(Outcome<ProviderAttemptResult> outcome) => outcome.Exception switch
+    {
+        HttpRequestException or IOException or ProviderAttemptTimeoutException => true,
+        null => outcome.Result.StatusCode == HttpStatusCode.RequestTimeout || (int)outcome.Result.StatusCode >= 500,
+        _ => false
+    };
 }

@@ -293,7 +293,12 @@ Start reading the code in this order:
 | `src/Blockchain.Application/Providers`, `Networks`, `Snapshots`, `Validation` | Provider and catalog ports, snapshot persistence/capture contracts, validation errors |
 | `src/Blockchain.Infrastructure/BlockCypher` | HTTP integration, Polly retries, request limiting and circuit breaker |
 | `src/Blockchain.Infrastructure/Persistence` | EF Core mappings, initial catalog, migrations and repositories |
+| `src/Blockchain.Infrastructure/Persistence/Configurations` | One EF Core mapping configuration per entity |
 | `src/Blockchain.Infrastructure/Collection` | Optional periodic capture using the existing application command |
+
+In the provider integration, `BlockCypherClient` handles HTTP calls and error translation,
+`BlockCypherResponseReader` reads and validates the original JSON, and `ProviderResiliencePipeline`
+coordinates retries, request limiting and the shared circuit breaker.
 | `src/Blockchain.Api` | HTTP endpoints, response DTOs, errors, health and dependency registration |
 | `src/Blockchain.Api/Configuration` | AddApplication and AddApi registrations; middleware order remains in Program.cs |
 

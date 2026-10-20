@@ -45,6 +45,10 @@ The specialized repository exposes append, find and ordered history operations, 
 or a generic CRUD abstraction. EF Core DbContext is the Unit of Work; each append calls SaveChangesAsync.
 There is no additional IUnitOfWork wrapper because no scenario coordinates multiple repositories.
 
+Persistence/Configurations contains one EF Core configuration per mapped entity. BlockchainDbContext
+applies these configurations and the initial catalog; schema details stay beside persistence code.
+AddInfrastructure groups dependency registration into persistence, BlockCypher and snapshot collection.
+
 ## 3. Original payload, timestamps and pagination
 
 Store the full successful response as PostgreSQL text, with metadata in separate columns.
@@ -67,6 +71,8 @@ deliberate simplicity trade-off and a possible future cursor-based alternative.
 ## 4. Provider resilience and concurrency
 
 BlockCypherClient resolves provider mapping, executes a resilient request and checks the response.
+BlockCypherResponseReader reads the bounded response body, validates UTF-8, JSON and the expected
+network name, then returns the original JSON unchanged.
 ProviderResiliencePipeline configures Polly retries around the shared limiter and circuit breaker;
 the client no longer owns a retry loop or timestamps. ProviderSnapshot contains only raw JSON.
 The limiter tracks spacing and hourly quota. ScopedSnapshotCaptureService gives each capture its own scope.
